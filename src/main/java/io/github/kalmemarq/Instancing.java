@@ -63,10 +63,10 @@ public class Instancing implements App {
         this.view = new Matrix4f();
         this.model = new Matrix4f();
 
-        String vsCubes = IoUtils.unchecked(() -> Files.readString(IoUtils.jarPath.resolve("vs_cubes.vsh")));
-        String fsCubes = IoUtils.unchecked(() -> Files.readString(IoUtils.jarPath.resolve("fs_cubes.fsh")));
-        String vsCubesInstance = IoUtils.unchecked(() -> Files.readString(IoUtils.jarPath.resolve("vs_cubes_instance.vsh")));
-        String vsCubesInstanceV2 = IoUtils.unchecked(() -> Files.readString(IoUtils.jarPath.resolve("vs_cubes_instance_v2.vsh")));
+        String vsCubes = IoUtils.unchecked(() -> Files.readString(IoUtils.jarPath.resolve("shaders/cubes.vsh")));
+        String fsCubes = IoUtils.unchecked(() -> Files.readString(IoUtils.jarPath.resolve("shaders/cubes.fsh")));
+        String vsCubesInstance = IoUtils.unchecked(() -> Files.readString(IoUtils.jarPath.resolve("shaders/cubes_instance.vsh")));
+        String vsCubesInstanceV2 = IoUtils.unchecked(() -> Files.readString(IoUtils.jarPath.resolve("shaders/cubes_instance_v2.vsh")));
 
         this.pipeline = device.createRenderPipeline(vsCubes, fsCubes, new GpuPrimitiveState(GpuPrimitiveTopology.TRIANGLE_LIST, GpuCullMode.BACK), new GpuDepthStencilState(GpuTextureFormat.DEPTH32FLOAT, true, GpuCompareFunction.LESS_EQUAL), new GpuVertexState(new GpuVertexBufferLayout[]{
                 new GpuVertexBufferLayout(GpuVertexFormat.FLOAT32X3, GpuVertexFormat.UNORM8X4),

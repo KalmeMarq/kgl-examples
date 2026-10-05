@@ -68,8 +68,8 @@ public class Cubes implements App {
         this.view = new Matrix4f();
         this.model = new Matrix4f();
 
-        String vs_cubes = IoUtils.unchecked(() -> Files.readString(IoUtils.jarPath.resolve("vs_cubes.vsh")));
-        String fs_cubes = IoUtils.unchecked(() -> Files.readString(IoUtils.jarPath.resolve("fs_cubes.fsh")));
+        String vs_cubes = IoUtils.unchecked(() -> Files.readString(IoUtils.jarPath.resolve("shaders/cubes.vsh")));
+        String fs_cubes = IoUtils.unchecked(() -> Files.readString(IoUtils.jarPath.resolve("shaders/cubes.fsh")));
 
         RenderPipeline.Builder pipelineBuilder = new RenderPipeline.Builder()
                 .withPrimitiveState(new GpuPrimitiveState(GpuPrimitiveTopology.TRIANGLE_LIST, GpuCullMode.BACK))

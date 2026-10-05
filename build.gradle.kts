@@ -54,6 +54,36 @@ java {
     }
 }
 
+val shadersDir = file("src/main/resources/shaders")
+val generatedShadersDir = layout.buildDirectory.dir("generated/shaders")
+
+tasks.register<Exec>("convertWgslShaders") {
+    group = "build"
+    description = "Converts wgsl shaders to vsh/fsh via naga + spirv-cross"
+
+    inputs.dir(shadersDir)
+    outputs.dir(generatedShadersDir)
+
+    workingDir = projectDir
+
+    commandLine("python3", "scripts/wgsl2glsl.py", generatedShadersDir.get().asFile.absolutePath)
+
+    onlyIf {
+        shadersDir.exists() && shadersDir.listFiles()?.any { it.extension == "wgsl" } == true
+    }
+}
+
+tasks.named<ProcessResources>("processResources") {
+    dependsOn("convertWgslShaders")
+
+    exclude("**/shaders/include")
+    exclude("**/*.wgsl")
+
+    from(generatedShadersDir) {
+        into("shaders")
+    }
+}
+
 tasks.test {
     useJUnitPlatform()
 }
