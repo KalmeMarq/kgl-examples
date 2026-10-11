@@ -1,1 +1,1 @@
-io.github.kalmemarq.kgl.impl.window.SdlWindow
+io.github.kalmemarq.kgl.impl.window.sdl.SdlWindow

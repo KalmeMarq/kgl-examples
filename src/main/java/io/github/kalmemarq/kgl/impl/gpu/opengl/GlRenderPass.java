@@ -15,8 +15,9 @@ class GlRenderPass implements GpuRenderPass {
     final @Nullable GlTexture depth;
     GlRenderPipeline pipeline;
     Map<String, Object> resources;
-    GlBuffer[] vertexBuffers;
+    GpuBufferSlice[] vertexBuffers;
     GlBuffer indexBuffer;
+    GpuIndexFormat indexFormat;
     Vector4ic scissorRect;
     Vector4ic viewport;
 
@@ -33,7 +34,7 @@ class GlRenderPass implements GpuRenderPass {
     }
 
     @Override
-    public void setResource(String name, GpuBuffer buffer) {
+    public void setResource(String name, GpuBufferSlice buffer) {
         if (this.resources == null) {
             this.resources = new HashMap<>();
         }
@@ -59,8 +60,8 @@ class GlRenderPass implements GpuRenderPass {
     }
 
     @Override
-    public void setVertexBuffer(int slot, @Nullable GpuBuffer buffer) {
-        if (buffer != null && (buffer.usage() & GpuBufferUsage.VERTEX) == 0) {
+    public void setVertexBuffer(int slot, @Nullable GpuBufferSlice buffer) {
+        if (buffer != null && (buffer.buffer().usage() & GpuBufferUsage.VERTEX) == 0) {
             throw new GpuValidationException("Buffer usage does not include VERTEX");
         }
 
@@ -77,20 +78,21 @@ class GlRenderPass implements GpuRenderPass {
         }
 
         if (this.vertexBuffers == null) {
-            this.vertexBuffers = new GlBuffer[slot > 1 ? 6 : 2];
+            this.vertexBuffers = new GpuBufferSlice[slot > 1 ? 6 : 2];
         } else if (slot >= this.vertexBuffers.length) {
             this.vertexBuffers = Arrays.copyOf(this.vertexBuffers, this.vertexBuffers.length * 2);
         }
 
-        this.vertexBuffers[slot] = buffer == null ? null : (GlBuffer) buffer;
+        this.vertexBuffers[slot] = buffer;
     }
 
     @Override
-    public void setIndexBuffer(GpuBuffer buffer) {
-        if ((buffer.usage() & GpuBufferUsage.INDEX) == 0) {
+    public void setIndexBuffer(GpuBuffer buffer, GpuIndexFormat format) {
+        if ((buffer.buffer().usage() & GpuBufferUsage.INDEX) == 0) {
             throw new GpuValidationException("Buffer usage does not include INDEX");
         }
         this.indexBuffer = (GlBuffer) buffer;
+        this.indexFormat = format;
     }
 
     @Override

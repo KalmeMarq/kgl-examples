@@ -1,6 +1,7 @@
 package io.github.kalmemarq.kgl.util;
 
 import io.github.kalmemarq.kgl.api.gpu.*;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuTextureDescriptor;
 import org.jspecify.annotations.Nullable;
 
 public class RenderTarget implements AutoCloseable {
@@ -32,9 +33,9 @@ public class RenderTarget implements AutoCloseable {
             this.depth.close();
         }
 
-        this.color = device.createTexture("RenderTargetColor", GpuTextureDimension.D2, this.colorFormat, this.width, this.height, GpuTextureUsage.RENDER_ATTACHMENT);
+        this.color = device.createTexture(new GpuTextureDescriptor("RenderTargetColor", GpuTextureDimension.D2, this.colorFormat, this.width, this.height, GpuTextureUsage.RENDER_ATTACHMENT));
         if (this.depthFormat != null) {
-            this.depth = device.createTexture("RenderTargetDepthStencil", GpuTextureDimension.D2, this.depthFormat, this.width, this.height, GpuTextureUsage.RENDER_ATTACHMENT);
+            this.depth = device.createTexture(new GpuTextureDescriptor("RenderTargetDepthStencil", GpuTextureDimension.D2, this.depthFormat, this.width, this.height, GpuTextureUsage.RENDER_ATTACHMENT));
         }
     }
 

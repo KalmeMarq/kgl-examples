@@ -4,6 +4,7 @@ import imgui.ImGui;
 import imgui.ImVec2;
 import imgui.type.ImBoolean;
 import io.github.kalmemarq.kgl.api.gpu.*;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuBufferDescriptor;
 import io.github.kalmemarq.kgl.api.window.Window;
 import io.github.kalmemarq.kgl.util.IoUtils;
 import io.github.kalmemarq.kgl.util.RenderPipeline;
@@ -34,8 +35,6 @@ public class Cubes implements App {
     private Vector3f eye;
     private Vector3f up;
 
-    private RenderTarget target;
-
     private GpuRenderPipeline[] pipelines;
 
     private Matrix4f proj;
@@ -61,8 +60,6 @@ public class Cubes implements App {
         this.at = new Vector3f(0, 0, 0);
         this.eye = new Vector3f(0, 0, -35f);
         this.up = new Vector3f(0, 1, 0);
-
-        this.target = new RenderTarget(GpuTextureFormat.RGBA8UINT, null);
 
         this.proj = new Matrix4f();
         this.view = new Matrix4f();
@@ -101,9 +98,9 @@ public class Cubes implements App {
                 }
             }
         }
-        this.vbh = device.createBuffer(null, 16L * CUBE_VERTICES.length, GpuBufferUsage.COPY_DST | GpuBufferUsage.VERTEX);
-        this.ibh = device.createBuffer(null, 36 * 4, GpuBufferUsage.COPY_DST | GpuBufferUsage.INDEX);
-        this.ub = device.createBuffer(null, UBO_LAYOUT.byteSize(), GpuBufferUsage.COPY_DST | GpuBufferUsage.UNIFORM);
+        this.vbh = device.createBuffer(new GpuBufferDescriptor(null, 16L * CUBE_VERTICES.length, GpuBufferUsage.COPY_DST | GpuBufferUsage.VERTEX));
+        this.ibh = device.createBuffer(new GpuBufferDescriptor(null, 36 * 4, GpuBufferUsage.COPY_DST | GpuBufferUsage.INDEX));
+        this.ub = device.createBuffer(new GpuBufferDescriptor(null, UBO_LAYOUT.byteSize(), GpuBufferUsage.COPY_DST | GpuBufferUsage.UNIFORM));
 
         try (MemoryStack stack = MemoryStack.stackPush()) {
             ByteBuffer tempBuffer = stack.malloc((int) this.vbh.size());
@@ -152,7 +149,6 @@ public class Cubes implements App {
 
     @Override
     public void shutdown(Window window, GpuDevice device) {
-        this.target.close();
         this.vbh.close();
         this.ibh.close();
         this.ub.close();
@@ -162,9 +158,8 @@ public class Cubes implements App {
     }
 
     @Override
-    public void render(Window window, GpuDevice device, int lastFps, ImGuiFrame imGuiFrame) {
-        this.target.resize(device, window.width(), window.height());
-        device.clearColorTexture(this.target.color(), 0xff303030);
+    public void render(Window window, GpuDevice device, RenderTarget mainTarget, int lastFps, ImGuiFrame imGuiFrame) {
+        device.clearColorTexture(mainTarget.color(), 0xff303030);
 
         this.proj.identity().perspective((float) Math.toRadians(60), window.width() / (float) window.height(), 0.1f, 1000f);
         this.view.identity().lookAt(this.eye, this.at, this.up);
@@ -172,10 +167,10 @@ public class Cubes implements App {
         UBO_LAYOUT.put(device, this.ub, "proj", this.proj);
         UBO_LAYOUT.put(device, this.ub, "view", this.view);
 
-        try (GpuRenderPass renderPass = device.createRenderPass(this.target.color(), null)) {
+        try (GpuRenderPass renderPass = device.createRenderPass(mainTarget.color(), null)) {
             renderPass.setPipeline(this.pipelines[((r.get() ? 1 : 0) * 8) + ((g.get() ? 1 : 0) * 4) + ((b.get() ? 1 : 0) * 2) + (a.get() ? 1 : 0)]);
             renderPass.setVertexBuffer(0, this.vbh);
-            renderPass.setIndexBuffer(this.ibh);
+            renderPass.setIndexBuffer(this.ibh, GpuIndexFormat.UINT32);
             renderPass.setResource("uniforms", this.ub);
 
             for (int y = 0; y < 11; ++y) {
@@ -191,23 +186,22 @@ public class Cubes implements App {
             }
         }
 
-        device.blit(this.target.color());
+        try (var _ = imGuiFrame.begin()) {
+            ImGui.setNextWindowPos(new ImVec2(window.width() - window.width() / 5.0f - 10.0f, 10.0f));
+            ImGui.setNextWindowSize(new ImVec2(window.width() / 5.0f, window.height() / 3.5f));
 
-        imGuiFrame.begin();
+            ImGui.begin("Settings");
+            ImGui.text(lastFps + " FPS");
 
-        ImGui.setNextWindowPos(new ImVec2(window.width() - window.width() / 5.0f - 10.0f, 10.0f));
-        ImGui.setNextWindowSize(new ImVec2(window.width() / 5.0f, window.height() / 3.5f));
+            ImGui.checkbox("Write R", this.r);
+            ImGui.checkbox("Write G", this.g);
+            ImGui.checkbox("Write B", this.b);
+            ImGui.checkbox("Write A", this.a);
 
-        ImGui.begin("Settings");
-        ImGui.text(lastFps + " FPS");
+            ImGui.end();
+        }
 
-        ImGui.checkbox("Write R", this.r);
-        ImGui.checkbox("Write G", this.g);
-        ImGui.checkbox("Write B", this.b);
-        ImGui.checkbox("Write A", this.a);
-
-        ImGui.end();
-        imGuiFrame.end();
+        device.blit(mainTarget.color());
     }
 
     public record PosColorVertex(float x, float y, float z, int argb) {

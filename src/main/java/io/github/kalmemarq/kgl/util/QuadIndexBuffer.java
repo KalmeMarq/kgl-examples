@@ -3,6 +3,7 @@ package io.github.kalmemarq.kgl.util;
 import io.github.kalmemarq.kgl.api.gpu.GpuBuffer;
 import io.github.kalmemarq.kgl.api.gpu.GpuBufferUsage;
 import io.github.kalmemarq.kgl.api.gpu.GpuDevice;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuBufferDescriptor;
 import org.lwjgl.system.MemoryUtil;
 
 public class QuadIndexBuffer implements AutoCloseable {
@@ -32,7 +33,7 @@ public class QuadIndexBuffer implements AutoCloseable {
 
         count *= 2;
 
-        GpuBuffer newBuffer = this.device.createBuffer("QuadIndexBuffer", count * 4L, GpuBufferUsage.COPY_SRC | GpuBufferUsage.COPY_DST | GpuBufferUsage.INDEX);
+        GpuBuffer newBuffer = this.device.createBuffer(new GpuBufferDescriptor("QuadIndexBuffer", count * 4L, GpuBufferUsage.COPY_SRC | GpuBufferUsage.COPY_DST | GpuBufferUsage.INDEX));
 
         if (this.buffer != null) {
             this.device.copyToBuffer(this.buffer, newBuffer);

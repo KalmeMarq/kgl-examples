@@ -1,6 +1,7 @@
 package io.github.kalmemarq.kgl.util;
 
 import io.github.kalmemarq.kgl.api.gpu.*;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuSamplerDescriptor;
 
 public class SamplerCache implements AutoCloseable {
     private final boolean simple;
@@ -14,7 +15,7 @@ public class SamplerCache implements AutoCloseable {
             for (GpuAddressMode address : GpuAddressMode.values()) {
                 for (GpuFilterMode filter : GpuFilterMode.values()) {
                     int idx = address.ordinal() << 1 | filter.ordinal();
-                    this.cache[idx] = device.createSampler(null, address, address, filter, filter);
+                    this.cache[idx] = device.createSampler(new GpuSamplerDescriptor(null, address, filter));
                 }
             }
         } else {
@@ -23,7 +24,7 @@ public class SamplerCache implements AutoCloseable {
                     for (GpuFilterMode minFilter : GpuFilterMode.values()) {
                         for (GpuFilterMode magFilter : GpuFilterMode.values()) {
                             int idx = addressU.ordinal() << 3 | addressV.ordinal() << 2 | minFilter.ordinal() << 1 | magFilter.ordinal();
-                            this.cache[idx] = device.createSampler(null, addressU, addressV, minFilter, magFilter);
+                            this.cache[idx] = device.createSampler(new GpuSamplerDescriptor(null, addressU, addressV, addressU, minFilter, magFilter));
                         }
                     }
                 }

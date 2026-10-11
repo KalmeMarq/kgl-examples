@@ -5,6 +5,7 @@ import imgui.ImVec2;
 import imgui.flag.ImGuiCond;
 import imgui.type.ImBoolean;
 import io.github.kalmemarq.kgl.api.gpu.*;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuBufferDescriptor;
 import io.github.kalmemarq.kgl.api.window.Window;
 import io.github.kalmemarq.kgl.util.IoUtils;
 import io.github.kalmemarq.kgl.util.RenderTarget;
@@ -26,7 +27,6 @@ public class Instancing implements App {
     private Vector3f eye;
     private Vector3f up;
 
-    private RenderTarget target;
     private GpuRenderPipeline pipeline;
     private GpuRenderPipeline instancePipeline;
     private GpuRenderPipeline instanceV2Pipeline;
@@ -57,7 +57,6 @@ public class Instancing implements App {
         this.eye = new Vector3f(0, 0, -35f);
         this.up = new Vector3f(0, -1, 0);
 
-        this.target = new RenderTarget(GpuTextureFormat.RGBA8UINT, null);
 
         this.proj = new Matrix4f();
         this.view = new Matrix4f();
@@ -88,13 +87,13 @@ public class Instancing implements App {
                 new GpuBindGroupLayoutEntry.Buffer("grid_uniforms", 1)
         ), new GpuColorTargetState[0]);
 
-        this.vbh = device.createBuffer(null, 16L * Cubes.CUBE_VERTICES.length, GpuBufferUsage.COPY_DST | GpuBufferUsage.VERTEX);
-        this.ibh = device.createBuffer(null, 36 * 4, GpuBufferUsage.COPY_DST | GpuBufferUsage.INDEX);
-        this.ub = device.createBuffer(null, UNIFORMS_LAYOUT.byteSize(), GpuBufferUsage.COPY_DST | GpuBufferUsage.UNIFORM);
-        this.v2ub = device.createBuffer(null, GRID_UNIFORMS_LAYOUT.byteSize(), GpuBufferUsage.COPY_DST | GpuBufferUsage.UNIFORM);
+        this.vbh = device.createBuffer(new GpuBufferDescriptor(null, 16L * Cubes.CUBE_VERTICES.length, GpuBufferUsage.COPY_DST | GpuBufferUsage.VERTEX));
+        this.ibh = device.createBuffer(new GpuBufferDescriptor(null, 36 * 4, GpuBufferUsage.COPY_DST | GpuBufferUsage.INDEX));
+        this.ub = device.createBuffer(new GpuBufferDescriptor(null, UNIFORMS_LAYOUT.byteSize(), GpuBufferUsage.COPY_DST | GpuBufferUsage.UNIFORM));
+        this.v2ub = device.createBuffer(new GpuBufferDescriptor(null, GRID_UNIFORMS_LAYOUT.byteSize(), GpuBufferUsage.COPY_DST | GpuBufferUsage.UNIFORM));
 
         this.instanceData = MemoryUtil.memAlloc(512 * 512 * 16);
-        this.instanceDataBuffer = device.createBuffer(null, this.instanceData.capacity(), GpuBufferUsage.COPY_DST | GpuBufferUsage.VERTEX);
+        this.instanceDataBuffer = device.createBuffer(new GpuBufferDescriptor(null, this.instanceData.capacity(), GpuBufferUsage.COPY_DST | GpuBufferUsage.VERTEX));
 
         try (MemoryStack stack = MemoryStack.stackPush()) {
             ByteBuffer tempBuffer = stack.malloc((int) this.vbh.size());
@@ -142,7 +141,6 @@ public class Instancing implements App {
 
     @Override
     public void shutdown(Window window, GpuDevice device) {
-        this.target.close();
         this.vbh.close();
         this.ibh.close();
         this.ub.close();
@@ -154,9 +152,8 @@ public class Instancing implements App {
     }
 
     @Override
-    public void render(Window window, GpuDevice device, int lastFps, ImGuiFrame imGuiFrame) {
-        this.target.resize(device, window.width(), window.height());
-        device.clearColorTexture(this.target.color(), 0xFF303030);
+    public void render(Window window, GpuDevice device, RenderTarget mainTarget, int lastFps, ImGuiFrame imGuiFrame) {
+        device.clearColorTexture(mainTarget.color(), 0xFF303030);
 
         this.proj.identity().perspective((float) Math.toRadians(60), window.width() / (float) window.height(), 0.1f, 1000f);
         this.view.identity().lookAt(this.eye, this.at, this.up);
@@ -168,7 +165,7 @@ public class Instancing implements App {
         float scale = 11f / Math.max(this.m_sideSize[0], 11f);
 
         if (this.m_useInstancing.get() && this.m_useInstancingV2.get()) {
-            try (GpuRenderPass renderPass = device.createRenderPass(this.target.color(), null)) {
+            try (GpuRenderPass renderPass = device.createRenderPass(mainTarget.color(), null)) {
                 this.model.identity().scale(scale);
                 UNIFORMS_LAYOUT.put(device, this.ub, "model", this.model);
 
@@ -180,7 +177,7 @@ public class Instancing implements App {
                 renderPass.setResource("uniforms", this.ub);
                 renderPass.setResource("grid_uniforms", this.v2ub);
                 renderPass.setVertexBuffer(0, this.vbh);
-                renderPass.setIndexBuffer(this.ibh);
+                renderPass.setIndexBuffer(this.ibh, GpuIndexFormat.UINT32);
                 renderPass.drawIndexed(36, this.m_sideSize[0] * this.m_sideSize[0], 0, 0, 0);
             }
         } else if (this.m_useInstancing.get()) {
@@ -199,7 +196,7 @@ public class Instancing implements App {
 
             device.writeToBuffer(this.instanceDataBuffer, this.instanceData);
 
-            try (GpuRenderPass renderPass = device.createRenderPass(this.target.color(), null)) {
+            try (GpuRenderPass renderPass = device.createRenderPass(mainTarget.color(), null)) {
                 this.model.identity().scale(scale);
                 UNIFORMS_LAYOUT.put(device, this.ub, "model", this.model);
 
@@ -207,14 +204,14 @@ public class Instancing implements App {
                 renderPass.setResource("uniforms", this.ub);
                 renderPass.setVertexBuffer(0, this.vbh);
                 renderPass.setVertexBuffer(1, this.instanceDataBuffer);
-                renderPass.setIndexBuffer(this.ibh);
+                renderPass.setIndexBuffer(this.ibh, GpuIndexFormat.UINT32);
                 renderPass.drawIndexed(36, this.m_sideSize[0] * this.m_sideSize[0], 0, 0, 0);
             }
         } else {
-            try (GpuRenderPass renderPass = device.createRenderPass(this.target.color(), null)) {
+            try (GpuRenderPass renderPass = device.createRenderPass(mainTarget.color(), null)) {
                 renderPass.setPipeline(this.pipeline);
                 renderPass.setVertexBuffer(0, this.vbh);
-                renderPass.setIndexBuffer(this.ibh);
+                renderPass.setIndexBuffer(this.ibh, GpuIndexFormat.UINT32);
                 renderPass.setResource("uniforms", this.ub);
 
                 for (int y = 0; y < this.m_sideSize[0]; ++y) {
@@ -232,28 +229,26 @@ public class Instancing implements App {
             }
         }
 
-        device.blit(this.target.color());
+        try (var _ = imGuiFrame.begin()) {
+            ImGui.setNextWindowPos(new ImVec2(window.width() - window.width() / 5.0f - 10.0f, 10.0f));
+            ImGui.setNextWindowSize(new ImVec2(window.width() / 5.0f, window.height() / 2.0f));
+            ImGui.begin("Settings");
+            ImGui.text(lastFps + " FPS");
 
-        imGuiFrame.begin();
+            ImGui.text((this.m_useInstancing.get() ? 1 : this.m_sideSize[0] * this.m_sideSize[0]) + " draw calls");
 
-        ImGui.setNextWindowPos(new ImVec2(window.width() - window.width() / 5.0f - 10.0f, 10.0f), ImGuiCond.FirstUseEver);
-        ImGui.setNextWindowSize(new ImVec2(window.width() / 5.0f, window.height() / 2.0f), ImGuiCond.FirstUseEver);
-        ImGui.begin("Settings");
-        ImGui.text(lastFps + " FPS");
+            ImGui.checkbox("Use Instancing", this.m_useInstancing);
+            if (this.m_useInstancing.get()) {
+                ImGui.checkbox("Use Instancing V2", this.m_useInstancingV2);
+            }
 
-        ImGui.text((this.m_useInstancing.get() ? 1 : this.m_sideSize[0] * this.m_sideSize[0]) + " draw calls");
+            ImGui.text("Grid Side Size:");
+            ImGui.sliderInt("##size", this.m_sideSize, 1, 512);
+            ImGui.text("Cubes: " + (this.m_sideSize[0] * this.m_sideSize[0]));
 
-        ImGui.checkbox("Use Instancing", this.m_useInstancing);
-        if (this.m_useInstancing.get()) {
-            ImGui.checkbox("Use Instancing V2", this.m_useInstancingV2);
+            ImGui.end();
         }
 
-        ImGui.text("Grid Side Size:");
-        ImGui.sliderInt("##size", this.m_sideSize, 1, 512);
-        ImGui.text("Cubes: " + (this.m_sideSize[0] * this.m_sideSize[0]));
-
-        ImGui.end();
-
-        imGuiFrame.end();
+        device.blit(mainTarget.color());
     }
 }

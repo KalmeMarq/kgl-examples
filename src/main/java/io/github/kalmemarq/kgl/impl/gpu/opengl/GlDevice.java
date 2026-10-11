@@ -1,7 +1,13 @@
 package io.github.kalmemarq.kgl.impl.gpu.opengl;
 
 import io.github.kalmemarq.kgl.api.gpu.*;
-import it.unimi.dsi.fastutil.objects.*;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuBufferDescriptor;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuSamplerDescriptor;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuTextureDescriptor;
+import it.unimi.dsi.fastutil.objects.Object2IntMap;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+import it.unimi.dsi.fastutil.objects.Reference2ObjectMap;
+import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import org.joml.Vector4ic;
 import org.jspecify.annotations.Nullable;
 import org.lwjgl.opengl.GL;
@@ -20,7 +26,8 @@ import java.util.Map;
 
 public class GlDevice implements GpuDevice {
     private final long context;
-    private final GpuDeviceLimits limits;
+    private final GpuLimits limits;
+    private final boolean validation;
 
     private final int[] _boundTextures;
     private final int[] _boundSamplers;
@@ -35,7 +42,8 @@ public class GlDevice implements GpuDevice {
 
     private final Reference2ObjectMap<GpuRenderPipeline, Object2IntMap<String>> pipelineToUniforms;
 
-    public GlDevice(long windowHandle) {
+    public GlDevice(long windowHandle, boolean validation) {
+        this.validation = validation;
         this.context = SDLVideo.SDL_GL_CreateContext(windowHandle);
         SDLVideo.SDL_GL_MakeCurrent(windowHandle, this.context);
         GL.create(SDLVideo::SDL_GL_GetProcAddress);
@@ -44,7 +52,7 @@ public class GlDevice implements GpuDevice {
         GLUtil.setupDebugMessageCallback(System.err);
         GL45C.glDebugMessageControl(GL45C.GL_DEBUG_SOURCE_API, GL45C.GL_DEBUG_TYPE_OTHER, GL45C.GL_DEBUG_SEVERITY_NOTIFICATION, (IntBuffer) null, false);
 
-        this.limits = new GpuDeviceLimits(
+        this.limits = new GpuLimits(
                 GL45C.glGetInteger(GL45C.GL_MAX_TEXTURE_SIZE),
                 GL45C.glGetInteger(GL45C.GL_MAX_TEXTURE_SIZE),
                 GL45C.glGetInteger(GL45C.GL_MAX_3D_TEXTURE_SIZE),
@@ -59,104 +67,54 @@ public class GlDevice implements GpuDevice {
     }
 
     @Override
-    public GpuTexture createTexture(@Nullable String label, GpuTextureDimension dimension, GpuTextureFormat format, int width, @GpuTextureUsage int usage) {
-        return this.createTexture(label, dimension, format, width, 1, 1, usage, null);
+    public GpuLimits limits() {
+        return this.limits;
     }
 
     @Override
-    public GpuTexture createTexture(@Nullable String label, GpuTextureDimension dimension, GpuTextureFormat format, int width, int height, @GpuTextureUsage int usage) {
-        return this.createTexture(label, dimension, format, width, height, 1, usage, null);
-    }
-
-    @Override
-    public GpuTexture createTexture(@Nullable String label, GpuTextureDimension dimension, GpuTextureFormat format, int width, int height, int depthOrLayers, @GpuTextureUsage int usage) {
-        return this.createTexture(label, dimension, format, width, height, depthOrLayers, usage, null);
-    }
-
-    @Override
-    public GpuTexture createTexture(@Nullable String label, GpuTextureDimension dimension, GpuTextureFormat format, int width, int height, int depthOrLayers, @GpuTextureUsage int usage, @Nullable GpuTextureViewDimension textureBindingViewDimension) {
-        if (width <= 0) {
-            throw new GpuValidationException("Texture width must be > 0");
+    public GpuTexture createTexture(GpuTextureDescriptor descriptor) {
+        if (this.validation) {
+            GlValidator.validateCreateTexture(this, descriptor);
         }
 
-        if (height <= 0) {
-            throw new GpuValidationException("Texture height must be > 0");
+        int handle = GL45C.glCreateTextures(descriptor.textureBindingViewDimension() == null ? toGlEnum(descriptor.dimension()) : toGlEnum(descriptor.textureBindingViewDimension()));
+
+        if (descriptor.label() != null) KHRDebug.glObjectLabel(GL45C.GL_TEXTURE, handle, descriptor.label());
+
+        switch (descriptor.dimension()) {
+            case D1 -> GL45C.glTextureStorage1D(handle, 1, toGlEnum(descriptor.format()), descriptor.width());
+            case D2 -> GL45C.glTextureStorage2D(handle, 1, toGlEnum(descriptor.format()), descriptor.width(), descriptor.height());
+            case D3 -> GL45C.glTextureStorage3D(handle, 1, toGlEnum(descriptor.format()), descriptor.width(), descriptor.height(), descriptor.depthOrLayers());
         }
-
-        switch (dimension) {
-            case D1 -> {
-                if (height != 1)
-                    throw new GpuValidationException("1D texture height must be 1");
-
-                if (width > this.limits.maxTextureDimension1D())
-                    throw new GpuValidationException("1D texture width must be > 0 and <= " + this.limits.maxTextureDimension1D());
-
-                if (textureBindingViewDimension != null && textureBindingViewDimension != GpuTextureViewDimension.D1) {
-                    throw new GpuValidationException("1D texture may only have a 1D texture view");
-                }
-            }
-            case D2 -> {
-                if (width > this.limits.maxTextureDimension2D())
-                    throw new GpuValidationException("2D texture width must be > 0 and <= " + this.limits.maxTextureDimension2D());
-
-                if (height > this.limits.maxTextureDimension2D())
-                    throw new GpuValidationException("2D texture height must be > 0 and <= " + this.limits.maxTextureDimension2D());
-
-                if (textureBindingViewDimension != null && textureBindingViewDimension != GpuTextureViewDimension.D2 && depthOrLayers == 1) {
-                    throw new GpuValidationException("2D texture may only have a 2D texture view if depthOrLayers equals 1");
-                }
-            }
-            case D3 -> {
-                if (width > this.limits.maxTextureDimension3D())
-                    throw new GpuValidationException("3D texture width must be > 0 and <= " + this.limits.maxTextureDimension3D());
-
-                if (height > this.limits.maxTextureDimension3D())
-                    throw new GpuValidationException("3D texture height must be > 0 and <= " + this.limits.maxTextureDimension3D());
-
-                if (textureBindingViewDimension != null && textureBindingViewDimension != GpuTextureViewDimension.D3) {
-                    throw new GpuValidationException("3D texture may only have a 3D texture view");
-                }
-            }
-        }
-
-        int handle = GL45C.glCreateTextures(textureBindingViewDimension == null ? toGlEnum(dimension) : toGlEnum(textureBindingViewDimension));
-
-        if (label != null) KHRDebug.glObjectLabel(GL45C.GL_TEXTURE, handle, label);
-
-        switch (dimension) {
-            case D1 -> GL45C.glTextureStorage1D(handle, 1, toGlEnum(format), width);
-            case D2 -> GL45C.glTextureStorage2D(handle, 1, toGlEnum(format), width, height);
-            case D3 -> GL45C.glTextureStorage3D(handle, 1, toGlEnum(format), width, height, depthOrLayers);
-        }
-        return new GlTexture(handle, dimension, format, usage, width, height, depthOrLayers, textureBindingViewDimension);
+        return new GlTexture(handle, descriptor);
     }
 
     @Override
-    public GpuSampler createSampler(@Nullable String label, GpuAddressMode addressModeUV, GpuFilterMode minMagFilter) {
-        return this.createSampler(label, addressModeUV, addressModeUV, minMagFilter, minMagFilter);
-    }
+    public GpuSampler createSampler(GpuSamplerDescriptor descriptor) {
+        if (this.validation) {
+            GlValidator.validateCreateSampler(this, descriptor);
+        }
 
-    @Override
-    public GpuSampler createSampler(@Nullable String label, GpuAddressMode addressModeU, GpuAddressMode addressModeV, GpuFilterMode minFilter, GpuFilterMode magFilter) {
         int handle = GL45C.glCreateSamplers();
-        GL45C.glSamplerParameteri(handle, GL45C.GL_TEXTURE_WRAP_S, toGlEnum(addressModeU));
-        GL45C.glSamplerParameteri(handle, GL45C.GL_TEXTURE_WRAP_T, toGlEnum(addressModeV));
-        GL45C.glSamplerParameteri(handle, GL45C.GL_TEXTURE_MIN_FILTER, toGlEnum(minFilter));
-        GL45C.glSamplerParameteri(handle, GL45C.GL_TEXTURE_MAG_FILTER, toGlEnum(magFilter));
+        GL45C.glSamplerParameteri(handle, GL45C.GL_TEXTURE_WRAP_S, toGlEnum(descriptor.addressModeU()));
+        GL45C.glSamplerParameteri(handle, GL45C.GL_TEXTURE_WRAP_T, toGlEnum(descriptor.addressModeV()));
+        GL45C.glSamplerParameteri(handle, GL45C.GL_TEXTURE_WRAP_R, toGlEnum(descriptor.addressModeW()));
+        GL45C.glSamplerParameteri(handle, GL45C.GL_TEXTURE_MIN_FILTER, toGlEnum(descriptor.minFilter()));
+        GL45C.glSamplerParameteri(handle, GL45C.GL_TEXTURE_MAG_FILTER, toGlEnum(descriptor.magFilter()));
 
-        if (label != null) KHRDebug.glObjectLabel(GL45C.GL_SAMPLER, handle, label);
+        if (descriptor.label() != null) KHRDebug.glObjectLabel(GL45C.GL_SAMPLER, handle, descriptor.label());
 
-        return new GlSampler(handle, addressModeU, addressModeV, minFilter, magFilter);
+        return new GlSampler(handle, descriptor);
     }
 
     @Override
-    public GpuBuffer createBuffer(@Nullable String label, long size, @GpuBufferUsage int usage) {
+    public GpuBuffer createBuffer(GpuBufferDescriptor descriptor) {
         int handle = GL45C.glCreateBuffers();
-        GL45C.glNamedBufferStorage(handle, size, GL45C.GL_DYNAMIC_STORAGE_BIT);
+        GL45C.glNamedBufferStorage(handle, descriptor.size(), GL45C.GL_DYNAMIC_STORAGE_BIT);
 
-        if (label != null) KHRDebug.glObjectLabel(KHRDebug.GL_BUFFER, handle, label);
+        if (descriptor.label() != null) KHRDebug.glObjectLabel(KHRDebug.GL_BUFFER, handle, descriptor.label());
 
-        return new GlBuffer(handle, size, usage);
+        return new GlBuffer(handle, descriptor.size(), descriptor.usage());
     }
 
     @Override
@@ -283,6 +241,11 @@ public class GlDevice implements GpuDevice {
 
     @Override
     public void blit(GpuTexture texture) {
+        if (this._scissorEnabled) {
+            GL45C.glDisable(GL45C.GL_SCISSOR_TEST);
+            this._scissorEnabled = false;
+        }
+
         GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_COLOR_ATTACHMENT0, ((GlTexture) texture).handle(), 0);
         GL45C.glNamedFramebufferDrawBuffer(this.fbo, GL45C.GL_COLOR_ATTACHMENT0);
         GL45C.glBlitNamedFramebuffer(this.fbo, 0, 0, 0, texture.width(), texture.height(), 0, 0, texture.width(), texture.height(), GL45C.GL_COLOR_BUFFER_BIT, GL45C.GL_NEAREST);
@@ -306,7 +269,7 @@ public class GlDevice implements GpuDevice {
             GpuVertexBufferLayout layout = renderPass.pipeline.vertexState().buffers()[i];
 
             if (renderPass.vertexBuffers[i] != null) {
-                GL45C.glVertexArrayVertexBuffer(vao, i, renderPass.vertexBuffers[i].handle(), 0, layout.arrayStride());
+                GL45C.glVertexArrayVertexBuffer(vao, i, ((GlBuffer) renderPass.vertexBuffers[i].buffer()).handle(), renderPass.vertexBuffers[i].offset(), layout.arrayStride());
             } else {
                 GL45C.glVertexArrayVertexBuffer(vao, i, 0, 0, 0);
             }
@@ -319,11 +282,11 @@ public class GlDevice implements GpuDevice {
         GL45C.glBindVertexArray(vao);
 
         if (instanceCount == 1 && baseVertex == 0 && baseInstance == 0) {
-            GL45C.glDrawElements(toGlEnum(renderPass.pipeline.primitiveState().topology()), indexCount, GL45C.GL_UNSIGNED_INT, baseIndex);
+            GL45C.glDrawElements(toGlEnum(renderPass.pipeline.primitiveState().topology()), indexCount, toGlEnum(renderPass.indexFormat), (long) baseIndex * (renderPass.indexFormat == GpuIndexFormat.UINT16 ? 2 : 4));
         } else if (baseInstance == 0) {
-            GL45C.glDrawElementsInstancedBaseVertex(toGlEnum(renderPass.pipeline.primitiveState().topology()), indexCount, GL45C.GL_UNSIGNED_INT, baseIndex, instanceCount, baseVertex);
+            GL45C.glDrawElementsInstancedBaseVertex(toGlEnum(renderPass.pipeline.primitiveState().topology()), indexCount, toGlEnum(renderPass.indexFormat), (long) baseIndex * (renderPass.indexFormat == GpuIndexFormat.UINT16 ? 2 : 4), instanceCount, baseVertex);
         } else {
-            GL45C.glDrawElementsInstancedBaseVertexBaseInstance(toGlEnum(renderPass.pipeline.primitiveState().topology()), indexCount, GL45C.GL_UNSIGNED_INT, baseIndex, instanceCount, baseVertex, baseInstance);
+            GL45C.glDrawElementsInstancedBaseVertexBaseInstance(toGlEnum(renderPass.pipeline.primitiveState().topology()), indexCount, toGlEnum(renderPass.indexFormat), (long) baseIndex * (renderPass.indexFormat == GpuIndexFormat.UINT16 ? 2 : 4), instanceCount, baseVertex, baseInstance);
         }
 
         GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_DEPTH_ATTACHMENT, 0, 0);
@@ -345,7 +308,7 @@ public class GlDevice implements GpuDevice {
             GpuVertexBufferLayout layout = renderPass.pipeline.vertexState().buffers()[i];
 
             if (renderPass.vertexBuffers[i] != null) {
-                GL45C.glVertexArrayVertexBuffer(vao, i, renderPass.vertexBuffers[i].handle(), 0, layout.arrayStride());
+                GL45C.glVertexArrayVertexBuffer(vao, i, ((GlBuffer) renderPass.vertexBuffers[i].buffer()).handle(), renderPass.vertexBuffers[i].buffer().offset(), layout.arrayStride());
             } else {
                 GL45C.glVertexArrayVertexBuffer(vao, i, 0, 0, 0);
             }
@@ -651,6 +614,13 @@ public class GlDevice implements GpuDevice {
             case ONE_MINUS_SRC_ALPHA -> GL45C.GL_ONE_MINUS_SRC_ALPHA;
             case DST_ALPHA -> GL45C.GL_DST_ALPHA;
             case ONE_MINUS_DST_ALPHA -> GL45C.GL_ONE_MINUS_DST_ALPHA;
+        };
+    }
+
+    private static int toGlEnum(GpuIndexFormat format) {
+        return switch (format) {
+            case UINT16 -> GL45C.GL_UNSIGNED_SHORT;
+            case UINT32 -> GL45C.GL_UNSIGNED_INT;
         };
     }
 }

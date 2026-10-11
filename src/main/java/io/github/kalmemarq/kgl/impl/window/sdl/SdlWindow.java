@@ -1,10 +1,7 @@
-package io.github.kalmemarq.kgl.impl.window;
+package io.github.kalmemarq.kgl.impl.window.sdl;
 
 import io.github.kalmemarq.kgl.api.gpu.GpuBackend;
-import io.github.kalmemarq.kgl.api.window.Event;
-import io.github.kalmemarq.kgl.api.window.EventHandler;
-import io.github.kalmemarq.kgl.api.window.Window;
-import io.github.kalmemarq.kgl.api.window.WindowConfig;
+import io.github.kalmemarq.kgl.api.window.*;
 import io.github.kalmemarq.kgl.util.image.Image;
 import org.lwjgl.sdl.*;
 import org.lwjgl.system.MemoryStack;
@@ -49,7 +46,28 @@ public class SdlWindow implements Window, AutoCloseable {
         SDLProperties.SDL_SetBooleanProperty(props, SDLVideo.SDL_PROP_WINDOW_CREATE_HIDDEN_BOOLEAN, true);
         SDLProperties.SDL_SetBooleanProperty(props, SDLVideo.SDL_PROP_WINDOW_CREATE_RESIZABLE_BOOLEAN, config.resizable());
 
-        backend.setWindowHints(props);
+        WindowHints hints = new WindowHints();
+        backend.setWindowHints(hints);
+
+        if (hints.get(WindowHints.Hint.GL).orElse(false)) {
+            SDLProperties.SDL_SetBooleanProperty(props, SDLVideo.SDL_PROP_WINDOW_CREATE_OPENGL_BOOLEAN, true);
+
+            hints.get(WindowHints.Hint.GL_DEBUG).ifPresent(value -> SDLVideo.SDL_GL_SetAttribute(SDLVideo.SDL_GL_CONTEXT_FLAGS, SDLVideo.SDL_GL_CONTEXT_DEBUG_FLAG));
+            hints.get(WindowHints.Hint.GL_MAJOR).ifPresent(value -> SDLVideo.SDL_GL_SetAttribute(SDLVideo.SDL_GL_CONTEXT_MAJOR_VERSION, value));
+            hints.get(WindowHints.Hint.GL_MINOR).ifPresent(value -> SDLVideo.SDL_GL_SetAttribute(SDLVideo.SDL_GL_CONTEXT_MINOR_VERSION, value));
+
+            hints.get(WindowHints.Hint.GL_DOUBLEBUFFER).ifPresent(value -> SDLVideo.SDL_GL_SetAttribute(SDLVideo.SDL_GL_DOUBLEBUFFER, value ? 1 : 0));
+            hints.get(WindowHints.Hint.GL_DEPTH_BITS).ifPresent(value -> SDLVideo.SDL_GL_SetAttribute(SDLVideo.SDL_GL_DEPTH_SIZE, value));
+            hints.get(WindowHints.Hint.GL_STENCIL_BITS).ifPresent(value -> SDLVideo.SDL_GL_SetAttribute(SDLVideo.SDL_GL_STENCIL_SIZE, value));
+
+            if (hints.get(WindowHints.Hint.GL_CORE).orElse(false)) {
+                SDLVideo.SDL_GL_SetAttribute(SDLVideo.SDL_GL_CONTEXT_PROFILE_MASK, SDLVideo.SDL_GL_CONTEXT_PROFILE_CORE);
+            }
+
+            if (hints.get(WindowHints.Hint.GL_FORWARD_COMPATIBLE).orElse(false)) {
+                SDLVideo.SDL_GL_SetAttribute(SDLVideo.SDL_GL_CONTEXT_FLAGS, SDLVideo.SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
+            }
+        }
 
         this.handle = SDLVideo.SDL_CreateWindowWithProperties(props);
         SDLProperties.SDL_DestroyProperties(props);
@@ -283,6 +301,20 @@ public class SdlWindow implements Window, AutoCloseable {
     @Override
     public boolean isFocused() {
         return this.isFocused;
+    }
+
+    @Override
+    public void setClipboardText(String text) {
+        if (text == null) {
+            return;
+        }
+        SDLClipboard.SDL_SetClipboardText(text);
+    }
+
+    @Override
+    public String getClipboardText() {
+        String text = SDLClipboard.SDL_GetClipboardText();
+        return text == null ? "" : text;
     }
 
     @Override

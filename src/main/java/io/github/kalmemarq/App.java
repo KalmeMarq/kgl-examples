@@ -1,22 +1,20 @@
 package io.github.kalmemarq;
 
+import imgui.ImDrawData;
 import imgui.ImGui;
-import imgui.gl3.ImGuiImplGl3;
-import imgui.sdl3.ImGuiImplSdl3;
-import io.github.kalmemarq.kgl.api.gpu.GpuBackend;
-import io.github.kalmemarq.kgl.api.gpu.GpuDevice;
-import io.github.kalmemarq.kgl.api.gpu.GpuSurface;
+import io.github.kalmemarq.imgui.ImGuiKgl;
+import io.github.kalmemarq.kgl.api.gpu.*;
 import io.github.kalmemarq.kgl.api.window.Event;
 import io.github.kalmemarq.kgl.api.window.Window;
 import io.github.kalmemarq.kgl.api.window.WindowConfig;
-import io.github.kalmemarq.kgl.impl.window.SdlWindow;
+import io.github.kalmemarq.kgl.util.RenderTarget;
 import org.lwjgl.sdl.SDLKeycode;
 
 public interface App {
     void initialize(Window window, GpuDevice device);
     void shutdown(Window window, GpuDevice device);
     default void update(Window window, GpuDevice device) {}
-    void render(Window window, GpuDevice device, int lastFps, ImGuiFrame imGuiFrame);
+    void render(Window window, GpuDevice device, RenderTarget target, int lastFps, ImGuiFrame imGuiFrame);
 
     static void run(App app) {
         GpuBackend backend = GpuBackend.getFirstSupportedBackend().orElseThrow();
@@ -33,27 +31,13 @@ public interface App {
             }
         });
 
-        GpuDevice device = backend.createDevice(window.handle());
+        GpuDevice device = backend.createDevice(window.handle(), true);
         GpuSurface surface = backend.createSurface(window.handle());
         surface.configure(GpuSurface.PresentMode.FIFO);
 
-        ImGuiImplSdl3 imGuiSdl3;
-        ImGuiImplGl3 imGuiGl3;
-
-        imGuiSdl3 = new ImGuiImplSdl3();
-        imGuiGl3 = new ImGuiImplGl3();
-
-        ImGui.createContext();
-        ImGui.getIO().setIniFilename("");
-        ImGui.getIO().setLogFilename("");
-        imGuiSdl3.init(window.handle());
-        imGuiGl3.init("#version 450");
-
-        if (window instanceof SdlWindow sdlWindow) {
-            sdlWindow.addSdlEventHandler(sdlEvent -> {
-                imGuiSdl3.processEvent(sdlEvent.address());
-            });
-        }
+        ImGuiKgl imGuiKgl = new ImGuiKgl();
+        imGuiKgl.init(window, device);
+        RenderTarget target = new RenderTarget(GpuTextureFormat.RGBA8UINT, null);
 
         app.initialize(window, device);
 
@@ -63,20 +47,25 @@ public interface App {
             boolean started = false;
 
             @Override
-            public void begin() {
-                imGuiSdl3.newFrame();
-                imGuiGl3.newFrame();
-                ImGui.newFrame();
+            public ImGuiFrame begin() {
+                imGuiKgl.newFrame(window);
                 this.started = true;
+                return this;
             }
 
             @Override
-            public void end() {
+            public void close() {
                 if (!this.started) {
                     return;
                 }
+
                 ImGui.render();
-                imGuiGl3.renderDrawData(ImGui.getDrawData());
+
+                try (GpuRenderPass renderPass = device.createRenderPass(target.color(), null)) {
+                    ImDrawData drawData = ImGui.getDrawData();
+                    imGuiKgl.uploadData(drawData);
+                    imGuiKgl.renderData(renderPass, drawData);
+                }
                 this.started = false;
             }
         };
@@ -89,7 +78,9 @@ public interface App {
             window.pollEvents();
 
             app.update(window, device);
-            app.render(window, device, lastFps, imGuiFrame);
+
+            target.resize(device, window.width(), window.height());
+            app.render(window, device, target, lastFps, imGuiFrame);
 
             surface.present();
             ++frames;
@@ -103,11 +94,15 @@ public interface App {
         }
 
         app.shutdown(window, device);
+        imGuiKgl.shutdown();
+        device.close();
+
         window.close();
     }
 
-    interface ImGuiFrame {
-        void begin();
-        void end();
+    interface ImGuiFrame extends AutoCloseable {
+        ImGuiFrame begin();
+        @Override
+        void close();
     }
 }

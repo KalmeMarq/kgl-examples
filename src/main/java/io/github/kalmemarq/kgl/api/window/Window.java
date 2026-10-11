@@ -26,6 +26,9 @@ public interface Window extends AutoCloseable {
     boolean isMinimized();
     boolean isFocused();
 
+    void setClipboardText(String text);
+    String getClipboardText();
+
     @Override
     void close();
 
