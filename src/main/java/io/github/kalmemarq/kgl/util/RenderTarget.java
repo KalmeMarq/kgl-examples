@@ -57,7 +57,9 @@ public class RenderTarget implements AutoCloseable {
 
     @Override
     public void close() {
-        this.color.close();
+        if (this.color != null) {
+            this.color.close();
+        }
         if (this.depth != null) {
             this.depth.close();
         }

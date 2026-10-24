@@ -5,6 +5,7 @@ import imgui.ImVec2;
 import imgui.type.ImBoolean;
 import io.github.kalmemarq.kgl.api.gpu.*;
 import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuBufferDescriptor;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuFragmentState;
 import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuRenderPipelineDescriptor;
 import io.github.kalmemarq.kgl.api.window.Event;
 import io.github.kalmemarq.kgl.api.window.Window;
@@ -82,7 +83,8 @@ public class Lines implements App {
                 new GpuBindGroupLayout(new GpuBindGroupLayoutEntry.UniformBuffer("uniforms", 0)),
                 new GpuVertexState(new GpuVertexBufferLayout(GpuVertexFormat.FLOAT32X3, GpuVertexFormat.FLOAT32X3, GpuVertexFormat.UNORM8X4)),
                 new GpuPrimitiveState(GpuPrimitiveTopology.TRIANGLE_LIST, GpuCullMode.BACK),
-                new GpuDepthStencilState(GpuTextureFormat.DEPTH32FLOAT, true, GpuCompareFunction.LESS_EQUAL)
+                new GpuDepthStencilState(GpuTextureFormat.DEPTH32FLOAT, true, GpuCompareFunction.LESS_EQUAL),
+                new GpuFragmentState(GpuColorTargetState.DEFAULT)
         ));
 
         this.pipelineInstanced = device.createRenderPipeline(new GpuRenderPipelineDescriptor(
@@ -91,7 +93,8 @@ public class Lines implements App {
                 new GpuBindGroupLayout(new GpuBindGroupLayoutEntry.UniformBuffer("uniforms", 0)),
                 new GpuVertexState(new GpuVertexBufferLayout(GpuVertexStepMode.INSTANCE, GpuVertexFormat.FLOAT32X3, GpuVertexFormat.FLOAT32X3, GpuVertexFormat.UNORM8X4)),
                 new GpuPrimitiveState(GpuPrimitiveTopology.TRIANGLE_STRIP, GpuCullMode.BACK),
-                new GpuDepthStencilState(GpuTextureFormat.DEPTH32FLOAT, true, GpuCompareFunction.LESS_EQUAL)
+                new GpuDepthStencilState(GpuTextureFormat.DEPTH32FLOAT, true, GpuCompareFunction.LESS_EQUAL),
+                new GpuFragmentState(GpuColorTargetState.DEFAULT)
         ));
 
         this.pipelineStorage = device.createRenderPipeline(new GpuRenderPipelineDescriptor(
@@ -100,7 +103,8 @@ public class Lines implements App {
                 new GpuBindGroupLayout(new GpuBindGroupLayoutEntry.UniformBuffer("uniforms", 0), new GpuBindGroupLayoutEntry.StorageBuffer("lines", 1)),
                 new GpuVertexState(),
                 new GpuPrimitiveState(GpuPrimitiveTopology.TRIANGLE_LIST, GpuCullMode.BACK),
-                new GpuDepthStencilState(GpuTextureFormat.DEPTH32FLOAT, true, GpuCompareFunction.LESS_EQUAL)
+                new GpuDepthStencilState(GpuTextureFormat.DEPTH32FLOAT, true, GpuCompareFunction.LESS_EQUAL),
+                new GpuFragmentState(GpuColorTargetState.DEFAULT)
         ));
 
         this.vbo = device.createBuffer(new GpuBufferDescriptor("VBO", this.pipeline.vertexState().buffers()[0].arrayStride() * 4L * 100000L, GpuBufferUsage.VERTEX | GpuBufferUsage.COPY_DST));
@@ -234,7 +238,9 @@ public class Lines implements App {
 
         int lines = this.lineCount[0];
 
-        device.clearColorAndDepthTextures(target.color(), 0xFF_181818, target.depth(), 1);
+        GpuCommandEncoder encoder = device.createCommandEncoder();
+        encoder.clearColorAndDepthTextures(target.color(), 0xFF_181818, target.depth(), 1);
+        device.submit(encoder.finish());
 
         if (!this.useInstancing.get() && !this.useSSBO.get()) {
             try (GpuRenderPass renderPass = device.createRenderPass(target.color(), target.depth())) {
@@ -260,7 +266,9 @@ public class Lines implements App {
             }
         }
 
-        device.clearDepthTexture(target.depth(), 1);
+        encoder = device.createCommandEncoder();
+        encoder.clearDepthTexture(target.depth(), 1);
+        device.submit(encoder.finish());
 
         try (var _ = imGuiFrame.begin()) {
             ImGui.setNextWindowPos(new ImVec2(window.width() - window.width() / 4.5f - 10.0f, 10.0f));

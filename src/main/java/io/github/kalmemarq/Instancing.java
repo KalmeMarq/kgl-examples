@@ -5,6 +5,7 @@ import imgui.ImVec2;
 import imgui.type.ImBoolean;
 import io.github.kalmemarq.kgl.api.gpu.*;
 import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuBufferDescriptor;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuFragmentState;
 import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuRenderPipelineDescriptor;
 import io.github.kalmemarq.kgl.api.window.Window;
 import io.github.kalmemarq.kgl.util.IoUtils;
@@ -73,19 +74,22 @@ public class Instancing implements App {
                 new GpuBindGroupLayout(new GpuBindGroupLayoutEntry.UniformBuffer("uniforms", 0)),
                 new GpuVertexState(new GpuVertexBufferLayout(GpuVertexFormat.FLOAT32X3, GpuVertexFormat.UNORM8X4)),
                 new GpuPrimitiveState(GpuPrimitiveTopology.TRIANGLE_LIST, GpuCullMode.BACK),
-                new GpuDepthStencilState(GpuTextureFormat.DEPTH32FLOAT, true, GpuCompareFunction.LESS_EQUAL)));
+                new GpuDepthStencilState(GpuTextureFormat.DEPTH32FLOAT, true, GpuCompareFunction.LESS_EQUAL),
+                new GpuFragmentState(GpuColorTargetState.DEFAULT)));
         this.instancePipeline = device.createRenderPipeline(new GpuRenderPipelineDescriptor(null,
                 new GpuRenderPipelineDescriptor.ShaderSource(vsCubesInstance, fsCubes),
                 new GpuBindGroupLayout(new GpuBindGroupLayoutEntry.UniformBuffer("uniforms", 0)),
                 new GpuVertexState(new GpuVertexBufferLayout(GpuVertexFormat.FLOAT32X3, GpuVertexFormat.UNORM8X4), new GpuVertexBufferLayout(16, GpuVertexStepMode.INSTANCE, new GpuVertexAttribute(GpuVertexFormat.FLOAT32X4, 0, 2))),
                 new GpuPrimitiveState(GpuPrimitiveTopology.TRIANGLE_LIST, GpuCullMode.BACK),
-                new GpuDepthStencilState(GpuTextureFormat.DEPTH32FLOAT, true, GpuCompareFunction.LESS_EQUAL)));
+                new GpuDepthStencilState(GpuTextureFormat.DEPTH32FLOAT, true, GpuCompareFunction.LESS_EQUAL),
+                new GpuFragmentState(GpuColorTargetState.DEFAULT)));
         this.instanceV2Pipeline = device.createRenderPipeline(new GpuRenderPipelineDescriptor(null,
                 new GpuRenderPipelineDescriptor.ShaderSource(vsCubesInstanceV2, fsCubes),
                 new GpuBindGroupLayout(new GpuBindGroupLayoutEntry.UniformBuffer("uniforms", 0), new GpuBindGroupLayoutEntry.UniformBuffer("grid_uniforms", 1)),
                 new GpuVertexState(new GpuVertexBufferLayout(GpuVertexFormat.FLOAT32X3, GpuVertexFormat.UNORM8X4)),
                 new GpuPrimitiveState(GpuPrimitiveTopology.TRIANGLE_LIST, GpuCullMode.BACK),
-                new GpuDepthStencilState(GpuTextureFormat.DEPTH32FLOAT, true, GpuCompareFunction.LESS_EQUAL)));
+                new GpuDepthStencilState(GpuTextureFormat.DEPTH32FLOAT, true, GpuCompareFunction.LESS_EQUAL),
+                new GpuFragmentState(GpuColorTargetState.DEFAULT)));
 
         this.vbh = device.createBuffer(new GpuBufferDescriptor(null, 16L * Cubes.CUBE_VERTICES.length, GpuBufferUsage.COPY_DST | GpuBufferUsage.VERTEX));
         this.ibh = device.createBuffer(new GpuBufferDescriptor(null, 36 * 4, GpuBufferUsage.COPY_DST | GpuBufferUsage.INDEX));
@@ -146,8 +150,6 @@ public class Instancing implements App {
 
     @Override
     public void render(Window window, GpuDevice device, RenderTarget mainTarget, int lastFps, ImGuiFrame imGuiFrame) {
-        device.clearColorTexture(mainTarget.color(), 0xFF303030);
-
         this.proj.identity().perspective((float) Math.toRadians(60), window.width() / (float) window.height(), 0.1f, 1000f);
         this.view.identity().lookAt(this.eye, this.at, this.up);
         this.projView.set(this.proj).mul(this.view);
@@ -156,6 +158,10 @@ public class Instancing implements App {
 
         float time = SDLTimer.SDL_GetTicks() / 1000f;
         float scale = 11f / Math.max(this.m_sideSize[0], 11f);
+
+        GpuCommandEncoder encoder = device.createCommandEncoder();
+        encoder.clearColorTexture(mainTarget.color(), 0xff303030);
+        device.submit(encoder.finish());
 
         if (this.m_useInstancing.get() && this.m_useInstancingV2.get()) {
             try (GpuRenderPass renderPass = device.createRenderPass(mainTarget.color(), null)) {

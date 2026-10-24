@@ -7,7 +7,11 @@ import org.jspecify.annotations.Nullable;
 
 public record GpuRenderPassDescriptor(ColorAttachment[] colorAttachments, @Nullable DepthStencilAttachment depthStencilAttachment) {
     public GpuRenderPassDescriptor(ColorAttachment colorAttachment, @Nullable DepthStencilAttachment depthStencilAttachment) {
-        this(new ColorAttachment[]{colorAttachment}, depthStencilAttachment);
+        this(colorAttachment == null ? new ColorAttachment[0] : new ColorAttachment[]{colorAttachment}, depthStencilAttachment);
+    }
+
+    public GpuRenderPassDescriptor(ColorAttachment... colorAttachments) {
+        this(colorAttachments, null);
     }
 
     public record ColorAttachment(GpuTexture texture, GpuLoadOp loadOp, GpuStoreOp storeOp, int color) {

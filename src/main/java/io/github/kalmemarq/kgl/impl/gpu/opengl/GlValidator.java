@@ -1,15 +1,15 @@
 package io.github.kalmemarq.kgl.impl.gpu.opengl;
 
-import io.github.kalmemarq.kgl.api.gpu.GpuTextureDimension;
-import io.github.kalmemarq.kgl.api.gpu.GpuTextureFormat;
-import io.github.kalmemarq.kgl.api.gpu.GpuTextureViewDimension;
-import io.github.kalmemarq.kgl.api.gpu.GpuValidationException;
+import io.github.kalmemarq.kgl.api.gpu.*;
 import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuBufferDescriptor;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuRenderPassDescriptor;
 import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuSamplerDescriptor;
 import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuTextureDescriptor;
 
-public class GlValidator {
-    public static void validateCreateTexture(GlDevice device, GpuTextureDescriptor descriptor) throws GpuValidationException {
+import java.nio.ByteBuffer;
+
+class GlValidator {
+    static void validateCreateTexture(GlDevice device, GpuTextureDescriptor descriptor) throws GpuValidationException {
         if (descriptor.usage() == 0) {
             throw new GpuValidationException("Texture usage must be specified");
         }
@@ -69,12 +69,42 @@ public class GlValidator {
         }
     }
 
-    public static void validateCreateSampler(GlDevice device, GpuSamplerDescriptor descriptor) throws GpuValidationException {
+    static void validateCreateSampler(GlDevice device, GpuSamplerDescriptor descriptor) throws GpuValidationException {
     }
 
-    public static void validateCreateBuffer(GlDevice device, GpuBufferDescriptor descriptor) throws GpuValidationException {
+    static void validateCreateBuffer(GlDevice device, GpuBufferDescriptor descriptor) throws GpuValidationException {
         if (descriptor.usage() == 0) {
             throw new GpuValidationException("Buffer usage must be specified");
+        }
+    }
+
+    static void validateWriteToBuffer(GpuBufferSlice bufferSlice, ByteBuffer data) throws GpuValidationException {
+        if ((bufferSlice.buffer().usage() & GpuBufferUsage.COPY_DST) == 0) {
+            throw new GpuValidationException("Buffer usage does not include COPY_DST");
+        }
+
+        if (data.remaining() > bufferSlice.size()) {
+            throw new GpuValidationException("Write exceeds buffer bounds");
+        }
+    }
+
+    static void validateCopyBufferToBuffer(GpuBufferSlice src, GpuBufferSlice dst) throws GpuValidationException {
+        if ((src.buffer().usage() & GpuBufferUsage.COPY_DST) == 0) {
+            throw new GpuValidationException("Source buffer usage does not include COPY_SRC");
+        }
+
+        if ((dst.buffer().usage() & GpuBufferUsage.COPY_DST) == 0) {
+            throw new GpuValidationException("Destination buffer usage does not include COPY_DST");
+        }
+    }
+
+    static void validateSetPipeline(GlRenderPass pass, GpuRenderPipeline pipeline) throws GpuValidationException {
+        GpuColorTargetState[] targets = pipeline.colorTargets();
+        GpuRenderPassDescriptor.ColorAttachment[] colors = pass.descriptor.colorAttachments();
+
+        int targetCount = targets == null ? 0 : targets.length;
+        if (targetCount != colors.length) {
+            throw new GpuValidationException("Pipeline has " + targetCount + " color targets but pass has " + colors.length);
         }
     }
 }

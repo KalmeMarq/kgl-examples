@@ -6,7 +6,7 @@ import org.lwjgl.opengl.GL45C;
 record GlRenderPipeline(int handle, int vertex, int fragment, GpuPrimitiveState primitiveState,
                         GpuDepthStencilState depthStencilState, GpuVertexState vertexState,
                         GpuBindGroupLayout bindGroupLayout,
-                        GpuColorTargetState[] colorTargets) implements GpuRenderPipeline {
+                        GpuColorTargetState... colorTargets) implements GpuRenderPipeline {
     @Override
     public void close() {
         GL45C.glDeleteProgramPipelines(this.handle);

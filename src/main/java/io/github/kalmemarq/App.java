@@ -37,7 +37,7 @@ public interface App {
 
         ImGuiKgl imGuiKgl = new ImGuiKgl();
         imGuiKgl.init(window, device);
-        RenderTarget target = new RenderTarget(GpuTextureFormat.RGBA8UINT, GpuTextureFormat.DEPTH32FLOAT);
+        RenderTarget target = new RenderTarget(GpuTextureFormat.RGBA8UNORM, GpuTextureFormat.DEPTH32FLOAT);
 
         app.initialize(window, device);
 

@@ -6,7 +6,7 @@ import io.github.kalmemarq.kgl.api.gpu.GpuSampler;
 import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuSamplerDescriptor;
 import org.lwjgl.opengl.GL45C;
 
-public record GlSampler(int handle, GpuSamplerDescriptor descriptor) implements GpuSampler {
+record GlSampler(int handle, GpuSamplerDescriptor descriptor) implements GpuSampler {
     @Override
     public GpuAddressMode addressModeU() {
         return this.descriptor.addressModeU();

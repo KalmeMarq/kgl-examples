@@ -1,6 +1,7 @@
 package io.github.kalmemarq.kgl.impl.gpu.opengl;
 
 import io.github.kalmemarq.kgl.api.gpu.*;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuRenderPassDescriptor;
 import org.joml.Vector4i;
 import org.joml.Vector4ic;
 import org.jspecify.annotations.Nullable;
@@ -11,8 +12,7 @@ import java.util.Map;
 
 class GlRenderPass implements GpuRenderPass {
     private final GlDevice device;
-    final GlTexture color;
-    final @Nullable GlTexture depth;
+    GpuRenderPassDescriptor descriptor;
     GlRenderPipeline pipeline;
     Map<String, Object> resources;
     GpuBufferSlice[] vertexBuffers;
@@ -21,15 +21,18 @@ class GlRenderPass implements GpuRenderPass {
     Vector4ic scissorRect;
     Vector4ic viewport;
 
-    public GlRenderPass(GlDevice device, GlTexture color, @Nullable GlTexture depth) {
+    public GlRenderPass(GlDevice device, GpuRenderPassDescriptor descriptor) {
         this.device = device;
-        this.color = color;
-        this.depth = depth;
+        this.descriptor = descriptor;
         this.resources = null;
+        device.beginRenderPass(this);
     }
 
     @Override
     public void setPipeline(GpuRenderPipeline pipeline) {
+        if (this.device.validation) {
+            GlValidator.validateSetPipeline(this, pipeline);
+        }
         this.pipeline = (GlRenderPipeline) pipeline;
     }
 
@@ -61,16 +64,18 @@ class GlRenderPass implements GpuRenderPass {
 
     @Override
     public void setVertexBuffer(int slot, @Nullable GpuBufferSlice buffer) {
-        if (buffer != null && (buffer.buffer().usage() & GpuBufferUsage.VERTEX) == 0) {
-            throw new GpuValidationException("Buffer usage does not include VERTEX");
-        }
+        if (this.device.validation) {
+            if (buffer != null && (buffer.buffer().usage() & GpuBufferUsage.VERTEX) == 0) {
+                throw new GpuValidationException("Buffer usage does not include VERTEX");
+            }
 
-        if (slot < 0) {
-            throw new GpuValidationException("Slot can't be negative");
-        }
+            if (slot < 0) {
+                throw new GpuValidationException("Slot can't be negative");
+            }
 
-        if (slot > 6) {
-            throw new GpuValidationException("Slot can't be greater than 6");
+            if (slot > 6) {
+                throw new GpuValidationException("Slot can't be greater than 6");
+            }
         }
 
         if (buffer == null && this.vertexBuffers == null) {
@@ -88,9 +93,12 @@ class GlRenderPass implements GpuRenderPass {
 
     @Override
     public void setIndexBuffer(GpuBuffer buffer, GpuIndexFormat format) {
-        if ((buffer.buffer().usage() & GpuBufferUsage.INDEX) == 0) {
-            throw new GpuValidationException("Buffer usage does not include INDEX");
+        if (this.device.validation) {
+            if ((buffer.buffer().usage() & GpuBufferUsage.INDEX) == 0) {
+                throw new GpuValidationException("Buffer usage does not include INDEX");
+            }
         }
+
         this.indexBuffer = (GlBuffer) buffer;
         this.indexFormat = format;
     }
@@ -122,6 +130,17 @@ class GlRenderPass implements GpuRenderPass {
 
     @Override
     public void close() {
+        this.device.endRenderPass();
+    }
+
+    int width() {
+        var colorAttachments = this.descriptor.colorAttachments();
+        return colorAttachments.length > 0 ? colorAttachments[0].texture().width() : this.descriptor.depthStencilAttachment().texture().width();
+    }
+
+    int height() {
+        var colorAttachments = this.descriptor.colorAttachments();
+        return colorAttachments.length > 0 ? colorAttachments[0].texture().height() : this.descriptor.depthStencilAttachment().texture().height();
     }
 
     record TextureAndSampler(GlTexture texture, GlSampler sampler) {}

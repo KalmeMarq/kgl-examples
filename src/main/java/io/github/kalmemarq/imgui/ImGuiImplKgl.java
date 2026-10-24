@@ -82,7 +82,7 @@ public class ImGuiImplKgl {
         this.fontTexture = this.device.createTexture(
                 new GpuTextureDescriptor(null,
                         GpuTextureDimension.D2,
-                        GpuTextureFormat.RGBA8UINT,
+                        GpuTextureFormat.RGBA8UNORM,
                         width.get(), height.get(),
                         GpuTextureUsage.TEXTURE_BINDING | GpuTextureUsage.COPY_DST)
         );

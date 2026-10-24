@@ -8,37 +8,29 @@ import it.unimi.dsi.fastutil.objects.Reference2ObjectMap;
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import org.joml.Vector4ic;
 import org.jspecify.annotations.Nullable;
-import org.lwjgl.opengl.GL;
-import org.lwjgl.opengl.GL45C;
-import org.lwjgl.opengl.GLUtil;
-import org.lwjgl.opengl.KHRDebug;
+import org.lwjgl.opengl.*;
 import org.lwjgl.sdl.SDLVideo;
 import org.lwjgl.system.MemoryStack;
 
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
-public class GlDevice implements GpuDevice {
+class GlDevice implements GpuDevice {
     private final long context;
     private final GpuLimits limits;
-    private final boolean validation;
+    final boolean validation;
 
     private final int[] _boundTextures;
     private final int[] _boundSamplers;
-    private boolean _scissorEnabled;
-    private boolean _cullEnabled;
-    private boolean _blendEnabled;
-    private boolean _depthTestEnabled;
-    private boolean _depthMaskEnabled;
     private GlRenderPipeline _lastPipeline;
     private final Map<GpuVertexState, Integer> vertexStateToVao;
+    private int lastColorCount;
     private final int fbo;
-
     private final Reference2ObjectMap<GpuRenderPipeline, Object2IntMap<String>> pipelineToUniforms;
+    private final ArrayDeque<GlCommandBuffer> freeCommandBuffers = new ArrayDeque<>();
+    private final List<GlCommandBuffer> allCommandBuffers = new ArrayList<>();
+    private final int zeroBufferSource;
 
     public GlDevice(long windowHandle, boolean validation) {
         this.validation = validation;
@@ -56,6 +48,11 @@ public class GlDevice implements GpuDevice {
                 GL45C.glGetInteger(GL45C.GL_MAX_3D_TEXTURE_SIZE),
                 GL45C.glGetInteger(GL45C.GL_MAX_VERTEX_ATTRIBS)
         );
+
+        this.zeroBufferSource = GL45C.glCreateBuffers();
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            GL45C.glNamedBufferStorage(this.zeroBufferSource, stack.calloc(1), GL45C.GL_DYNAMIC_STORAGE_BIT);
+        }
 
         this.vertexStateToVao = new HashMap<>();
         this._boundTextures = new int[]{-1, -1, -1};
@@ -75,14 +72,13 @@ public class GlDevice implements GpuDevice {
             GlValidator.validateCreateTexture(this, descriptor);
         }
 
-        int handle = GL45C.glCreateTextures(descriptor.textureBindingViewDimension() == null ? toGlEnum(descriptor.dimension()) : toGlEnum(descriptor.textureBindingViewDimension()));
-
+        int handle = GL45C.glCreateTextures(descriptor.textureBindingViewDimension() == null ? GlUtils.toGlEnum(descriptor.dimension()) : GlUtils.toGlEnum(descriptor.textureBindingViewDimension()));
         if (descriptor.label() != null) KHRDebug.glObjectLabel(GL45C.GL_TEXTURE, handle, descriptor.label());
 
         switch (descriptor.dimension()) {
-            case D1 -> GL45C.glTextureStorage1D(handle, 1, toGlEnum(descriptor.format()), descriptor.width());
-            case D2 -> GL45C.glTextureStorage2D(handle, 1, toGlEnum(descriptor.format()), descriptor.width(), descriptor.height());
-            case D3 -> GL45C.glTextureStorage3D(handle, 1, toGlEnum(descriptor.format()), descriptor.width(), descriptor.height(), descriptor.depthOrLayers());
+            case D1 -> GL45C.glTextureStorage1D(handle, 1, GlUtils.toGlEnum(descriptor.format()), descriptor.width());
+            case D2 -> GL45C.glTextureStorage2D(handle, 1, GlUtils.toGlEnum(descriptor.format()), descriptor.width(), descriptor.height());
+            case D3 -> GL45C.glTextureStorage3D(handle, 1, GlUtils.toGlEnum(descriptor.format()), descriptor.width(), descriptor.height(), descriptor.depthOrLayers());
         }
         return new GlTexture(handle, descriptor);
     }
@@ -94,13 +90,13 @@ public class GlDevice implements GpuDevice {
         }
 
         int handle = GL45C.glCreateSamplers();
-        GL45C.glSamplerParameteri(handle, GL45C.GL_TEXTURE_WRAP_S, toGlEnum(descriptor.addressModeU()));
-        GL45C.glSamplerParameteri(handle, GL45C.GL_TEXTURE_WRAP_T, toGlEnum(descriptor.addressModeV()));
-        GL45C.glSamplerParameteri(handle, GL45C.GL_TEXTURE_WRAP_R, toGlEnum(descriptor.addressModeW()));
-        GL45C.glSamplerParameteri(handle, GL45C.GL_TEXTURE_MIN_FILTER, toGlEnum(descriptor.minFilter()));
-        GL45C.glSamplerParameteri(handle, GL45C.GL_TEXTURE_MAG_FILTER, toGlEnum(descriptor.magFilter()));
-
         if (descriptor.label() != null) KHRDebug.glObjectLabel(GL45C.GL_SAMPLER, handle, descriptor.label());
+
+        GL45C.glSamplerParameteri(handle, GL45C.GL_TEXTURE_WRAP_S, GlUtils.toGlEnum(descriptor.addressModeU()));
+        GL45C.glSamplerParameteri(handle, GL45C.GL_TEXTURE_WRAP_T, GlUtils.toGlEnum(descriptor.addressModeV()));
+        GL45C.glSamplerParameteri(handle, GL45C.GL_TEXTURE_WRAP_R, GlUtils.toGlEnum(descriptor.addressModeW()));
+        GL45C.glSamplerParameteri(handle, GL45C.GL_TEXTURE_MIN_FILTER, GlUtils.toGlEnum(descriptor.minFilter()));
+        GL45C.glSamplerParameteri(handle, GL45C.GL_TEXTURE_MAG_FILTER, GlUtils.toGlEnum(descriptor.magFilter()));
 
         return new GlSampler(handle, descriptor);
     }
@@ -112,9 +108,9 @@ public class GlDevice implements GpuDevice {
         }
 
         int handle = GL45C.glCreateBuffers();
-        GL45C.glNamedBufferStorage(handle, descriptor.size(), GL45C.GL_DYNAMIC_STORAGE_BIT);
-
         if (descriptor.label() != null) KHRDebug.glObjectLabel(KHRDebug.GL_BUFFER, handle, descriptor.label());
+
+        GL45C.glNamedBufferStorage(handle, descriptor.size(), GL45C.GL_DYNAMIC_STORAGE_BIT);
 
         return new GlBuffer(handle, descriptor.size(), descriptor.usage());
     }
@@ -135,44 +131,31 @@ public class GlDevice implements GpuDevice {
     }
 
     @Override
+    public GpuCommandEncoder createCommandEncoder() {
+        return new GlCommandEncoder(this, this.acquireCommandBuffer());
+    }
+
+    @Override
     public GpuRenderPass createRenderPass(GpuTexture colorAttachment, @Nullable GpuTexture depthStencilAttachment) {
-        return new GlRenderPass(this, (GlTexture) colorAttachment, (GlTexture) depthStencilAttachment);
+        return this.createRenderPass(new GpuRenderPassDescriptor(
+                colorAttachment == null ? null : new GpuRenderPassDescriptor.ColorAttachment(colorAttachment),
+                depthStencilAttachment == null ? null : new GpuRenderPassDescriptor.DepthStencilAttachment(depthStencilAttachment)
+        ));
     }
 
     @Override
     public GpuRenderPass createRenderPass(GpuRenderPassDescriptor descriptor) {
-        return new GlRenderPass(this, descriptor.colorAttachments().length == 0 ? null : (GlTexture) descriptor.colorAttachments()[0].texture(), descriptor.depthStencilAttachment() == null ? null : (GlTexture) descriptor.depthStencilAttachment().texture());
+        return new GlRenderPass(this, descriptor);
     }
 
     @Override
     public void writeToBuffer(GpuBufferSlice bufferSlice, ByteBuffer data) {
+        if (this.validation) {
+            GlValidator.validateWriteToBuffer(bufferSlice, data);
+        }
+
         GlBuffer buffer = (GlBuffer) bufferSlice.buffer();
-
-        if ((buffer.usage() & GpuBufferUsage.COPY_DST) == 0) {
-            throw new GpuValidationException("Buffer usage does not include COPY_DST");
-        }
-
-        if (data.remaining() > bufferSlice.size()) {
-            throw new GpuValidationException("Write exceeds buffer bounds");
-        }
-
         GL45C.glNamedBufferSubData(buffer.handle(), bufferSlice.offset(), data);
-    }
-
-    @Override
-    public void copyBufferToBuffer(GpuBufferSlice src, GpuBufferSlice dst) {
-        GlBuffer srcBuffer = (GlBuffer) src.buffer();
-        GlBuffer dstBuffer = (GlBuffer) dst.buffer();
-
-        if ((srcBuffer.usage() & GpuBufferUsage.COPY_DST) == 0) {
-            throw new GpuValidationException("Source buffer usage does not include COPY_SRC");
-        }
-
-        if ((dstBuffer.usage() & GpuBufferUsage.COPY_DST) == 0) {
-            throw new GpuValidationException("Destination buffer usage does not include COPY_DST");
-        }
-
-        GL45C.glCopyNamedBufferSubData(srcBuffer.handle(), dstBuffer.handle(), src.offset(), dst.offset(), src.size());
     }
 
     @Override
@@ -180,12 +163,10 @@ public class GlDevice implements GpuDevice {
         GL45C.glTextureSubImage2D(((GlTexture) texture).handle(), 0, 0, 0, texture.width(), texture.height(), GL45C.GL_RGBA, GL45C.GL_UNSIGNED_BYTE, data);
     }
 
-    @Override
     public void writeToTexture(GpuTexture texture, ByteBuffer data, int dstX, int dstY, int dstWidth, int dstHeight) {
         GL45C.glTextureSubImage2D(((GlTexture) texture).handle(), 0, dstX, dstY, dstWidth, dstHeight, GL45C.GL_RGBA, GL45C.GL_UNSIGNED_BYTE, data);
     }
 
-    @Override
     public void copyBufferToTexture(GpuBufferSlice src, int srcX, int srcY, int srcWidth, int srcHeight, GpuTexture dst, int dstX, int dstY, int dstWidth, int dstHeight, int layer) {
         GlTexture glTexture = (GlTexture) dst;
 
@@ -208,70 +189,175 @@ public class GlDevice implements GpuDevice {
     }
 
     @Override
-    public void clearColorTexture(GpuTexture texture, int color) {
-        float a = (color >> 24 & 0xFF) / 255f;
-        float r = (color >> 16 & 0xFF) / 255f;
-        float g = (color >> 8 & 0xFF) / 255f;
-        float b = (color & 0xFF) / 255f;
+    public void submit(GpuCommandBuffer commandBuffer) {
+        GlCommandBuffer glCommandBuffer = (GlCommandBuffer) commandBuffer;
 
-        GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_COLOR_ATTACHMENT0, ((GlTexture) texture).handle(), 0);
-        GL45C.glNamedFramebufferDrawBuffer(this.fbo, GL45C.GL_COLOR_ATTACHMENT0);
+        ByteBuffer buffer = glCommandBuffer.data.flip();
+        while (buffer.hasRemaining()) {
+            int type = buffer.getInt();
+            switch (type) {
+                case GlCommandBuffer.COPY_BUFFER_TO_BUFFER -> {
+                    GlBuffer srcBuffer = glCommandBuffer.buffers.get(buffer.getInt());
+                    GlBuffer dstBuffer = glCommandBuffer.buffers.get(buffer.getInt());
+                    long srcOffset = buffer.getLong();
+                    long dstOffset = buffer.getLong();
+                    long size = buffer.getLong();
 
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            GL45C.glClearNamedFramebufferfv(this.fbo, GL45C.GL_COLOR, 0, stack.floats(r, g, b, a));
+                    GL45C.glCopyNamedBufferSubData(srcBuffer.handle(), dstBuffer.handle(), srcOffset, dstOffset, size);
+                }
+                case GlCommandBuffer.COPY_TEXTURE_TO_TEXTURE -> {
+                    GlTexture src = glCommandBuffer.textures.get(buffer.getInt());
+                    GlTexture dst = glCommandBuffer.textures.get(buffer.getInt());
+
+                    int srcOriginX = buffer.getInt();
+                    int srcOriginY = buffer.getInt();
+                    int srcOriginZ = buffer.getInt();
+
+                    int dstOriginX = buffer.getInt();
+                    int dstOriginY = buffer.getInt();
+                    int dstOriginZ = buffer.getInt();
+
+                    int copySizeX = buffer.getInt();
+                    int copySizeY = buffer.getInt();
+                    int copySizeZ = buffer.getInt();
+
+                    GL45C.glCopyImageSubData(
+                            src.handle(), GlUtils.toGlEnum(src.dimension()), 0,
+                            srcOriginX, srcOriginY, srcOriginZ,
+                            dst.handle(), GlUtils.toGlEnum(dst.dimension()), 0,
+                            dstOriginX, dstOriginY, dstOriginZ,
+                            copySizeX, copySizeY, copySizeZ
+                    );
+                }
+                case GlCommandBuffer.CLEAR_BUFFER -> {
+                    GlBuffer buf = glCommandBuffer.buffers.get(buffer.getInt());
+                    long offset = buffer.getLong();
+                    long size = buffer.getLong();
+
+                    GL45C.glCopyNamedBufferSubData(
+                            this.zeroBufferSource,
+                            buf.handle(),
+                            0,
+                            offset,
+                            size
+                    );
+                }
+                case GlCommandBuffer.CLEAR_COLOR -> {
+                    GlTexture texture = glCommandBuffer.textures.get(buffer.getInt());
+                    int color = buffer.getInt();
+
+                    float a = (color >> 24 & 0xFF) / 255f;
+                    float r = (color >> 16 & 0xFF) / 255f;
+                    float g = (color >> 8 & 0xFF) / 255f;
+                    float b = (color & 0xFF) / 255f;
+
+                    GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_COLOR_ATTACHMENT0, texture.handle(), 0);
+                    GL45C.glNamedFramebufferDrawBuffer(this.fbo, GL45C.GL_COLOR_ATTACHMENT0);
+
+                    try (MemoryStack stack = MemoryStack.stackPush()) {
+                        GL45C.glClearNamedFramebufferfv(this.fbo, GL45C.GL_COLOR, 0, stack.floats(r, g, b, a));
+                    }
+                }
+                case GlCommandBuffer.CLEAR_DEPTH -> {
+                    GlTexture texture = glCommandBuffer.textures.get(buffer.getInt());
+                    float clearDepth = buffer.getFloat();
+
+                    GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_DEPTH_ATTACHMENT, texture.handle(), 0);
+
+                    try (MemoryStack stack = MemoryStack.stackPush()) {
+                        GL45C.glClearNamedFramebufferfv(this.fbo, GL45C.GL_DEPTH, 0, stack.floats(clearDepth));
+                    }
+                }
+            }
         }
-    }
 
-    @Override
-    public void clearDepthTexture(GpuTexture texture, double clearDepth) {
-        GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_DEPTH_ATTACHMENT, ((GlTexture) texture).handle(), 0);
-
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            GL45C.glClearNamedFramebufferfv(this.fbo, GL45C.GL_DEPTH, 0, stack.floats((float) clearDepth));
-        }
-    }
-
-    @Override
-    public void clearColorAndDepthTextures(GpuTexture colorTexture, int color, GpuTexture depthTexture, double clearDepth) {
-        float a = ((color >> 24) & 0xFF) / 255f;
-        float r = ((color >> 16) & 0xFF) / 255f;
-        float g = ((color >> 8) & 0xFF) / 255f;
-        float b = ((color) & 0xFF) / 255f;
-
-        GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_COLOR_ATTACHMENT0, ((GlTexture) colorTexture).handle(), 0);
-        GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_DEPTH_ATTACHMENT, ((GlTexture) depthTexture).handle(), 0);
-
-        GL45C.glNamedFramebufferDrawBuffer(this.fbo, GL45C.GL_COLOR_ATTACHMENT0);
-
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            GL45C.glClearNamedFramebufferfv(this.fbo, GL45C.GL_COLOR, 0, stack.floats(r, g, b, a));
-            GL45C.glClearNamedFramebufferfv(this.fbo, GL45C.GL_DEPTH, 0, stack.floats((float) clearDepth));
-        }
+        glCommandBuffer.reset();
+        this.freeCommandBuffers.add(glCommandBuffer);
     }
 
     @Override
     public void blit(GpuTexture texture) {
-        if (this._scissorEnabled) {
-            GL45C.glDisable(GL45C.GL_SCISSOR_TEST);
-            this._scissorEnabled = false;
-        }
-
         GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_COLOR_ATTACHMENT0, ((GlTexture) texture).handle(), 0);
+        GL45C.glNamedFramebufferReadBuffer(this.fbo, GL45C.GL_COLOR_ATTACHMENT0);
         GL45C.glNamedFramebufferDrawBuffer(this.fbo, GL45C.GL_COLOR_ATTACHMENT0);
         GL45C.glBlitNamedFramebuffer(this.fbo, 0, 0, 0, texture.width(), texture.height(), 0, 0, texture.width(), texture.height(), GL45C.GL_COLOR_BUFFER_BIT, GL45C.GL_NEAREST);
     }
 
     @Override
     public void close() {
+        for (GlCommandBuffer commandBuffer : this.allCommandBuffers) {
+            commandBuffer.close();
+        }
+
         SDLVideo.SDL_GL_DestroyContext(this.context);
     }
 
-    void drawIndexed(GlRenderPass renderPass, int indexCount, int instanceCount, int baseIndex, int baseVertex, int baseInstance) {
-        GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_COLOR_ATTACHMENT0, renderPass.color.handle(), 0);
-        GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_DEPTH_ATTACHMENT, renderPass.depth != null ? renderPass.depth.handle() : 0, 0);
-        GL45C.glNamedFramebufferDrawBuffer(this.fbo, GL45C.GL_COLOR_ATTACHMENT0);
+    void beginRenderPass(GlRenderPass renderPass) {
+        GpuRenderPassDescriptor.ColorAttachment[] colors = renderPass.descriptor.colorAttachments();
+        GpuRenderPassDescriptor.DepthStencilAttachment depth = renderPass.descriptor.depthStencilAttachment();
+
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer colorBufs = stack.mallocInt(colors.length);
+
+            for (int i = 0; i < colors.length; i++) {
+                GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_COLOR_ATTACHMENT0 + i, ((GlTexture) colors[i].texture()).handle(), 0);
+                colorBufs.put(GL45C.GL_COLOR_ATTACHMENT0 + i);
+            }
+            colorBufs.flip();
+
+            if (colors.length == 0) {
+                GL45C.glNamedFramebufferDrawBuffer(this.fbo, GL45C.GL_NONE);
+                GL45C.glNamedFramebufferReadBuffer(this.fbo, GL45C.GL_NONE);
+            } else {
+                GL45C.glNamedFramebufferDrawBuffers(this.fbo, colorBufs);
+                GL45C.glNamedFramebufferReadBuffer(this.fbo, GL45C.GL_COLOR_ATTACHMENT0);
+            }
+
+            GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_DEPTH_ATTACHMENT, depth != null ? ((GlTexture) depth.texture()).handle() : 0, 0);
+        }
+
+        for (int i = colors.length; i < this.lastColorCount; i++) {
+            GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_COLOR_ATTACHMENT0 + i, 0, 0);
+        }
+        this.lastColorCount = colors.length;
+
         GL45C.glBindFramebuffer(GL45C.GL_FRAMEBUFFER, this.fbo);
 
+        this.applyLoadOps(renderPass);
+    }
+
+    private void applyLoadOps(GlRenderPass renderPass) {
+        var colors = renderPass.descriptor.colorAttachments();
+        var depth = renderPass.descriptor.depthStencilAttachment();
+
+        GL45C.glDisable(GL45C.GL_SCISSOR_TEST);
+        GL45C.glColorMask(true, true, true, true);
+        GL45C.glDepthMask(true);
+
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            for (int i = 0; i < colors.length; i++) {
+                if (colors[i].loadOp() != GpuLoadOp.CLEAR) continue;
+
+                int color = colors[i].color();
+                GL45C.glClearNamedFramebufferfv(this.fbo, GL45C.GL_COLOR, i, stack.floats((color >> 16 & 0xFF) / 255f, (color >> 8 & 0xFF) / 255f, (color & 0xFF) / 255f, (color >> 24 & 0xFF) / 255f));
+            }
+
+            if (depth != null && depth.loadOp() == GpuLoadOp.CLEAR) {
+                GL45C.glClearNamedFramebufferfv(this.fbo, GL45C.GL_DEPTH, 0, stack.floats(1.0f));
+            }
+        }
+    }
+
+    void endRenderPass() {
+        GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_DEPTH_ATTACHMENT, 0, 0);
+        GL45C.glBindFramebuffer(GL45C.GL_FRAMEBUFFER, 0);
+        GL45C.glDisable(GL45C.GL_SCISSOR_TEST);
+        GL45C.glColorMask(true, true, true, true);
+        GL45C.glDepthMask(true);
+        this._lastPipeline = null;
+    }
+
+    void drawIndexed(GlRenderPass renderPass, int indexCount, int instanceCount, int baseIndex, int baseVertex, int baseInstance) {
         this.setupResourcesAndPipelines(renderPass);
 
         int vao = this.getVertexArrayBuffer(renderPass.pipeline.vertexState());
@@ -292,25 +378,15 @@ public class GlDevice implements GpuDevice {
         GL45C.glBindVertexArray(vao);
 
         if (instanceCount == 1 && baseVertex == 0 && baseInstance == 0) {
-            GL45C.glDrawElements(toGlEnum(renderPass.pipeline.primitiveState().topology()), indexCount, toGlEnum(renderPass.indexFormat), (long) baseIndex * (renderPass.indexFormat == GpuIndexFormat.UINT16 ? 2 : 4));
+            GL45C.glDrawElements(GlUtils.toGlEnum(renderPass.pipeline.primitiveState().topology()), indexCount, GlUtils.toGlEnum(renderPass.indexFormat), (long) baseIndex * (renderPass.indexFormat == GpuIndexFormat.UINT16 ? 2 : 4));
         } else if (baseInstance == 0) {
-            GL45C.glDrawElementsInstancedBaseVertex(toGlEnum(renderPass.pipeline.primitiveState().topology()), indexCount, toGlEnum(renderPass.indexFormat), (long) baseIndex * (renderPass.indexFormat == GpuIndexFormat.UINT16 ? 2 : 4), instanceCount, baseVertex);
+            GL45C.glDrawElementsInstancedBaseVertex(GlUtils.toGlEnum(renderPass.pipeline.primitiveState().topology()), indexCount, GlUtils.toGlEnum(renderPass.indexFormat), (long) baseIndex * (renderPass.indexFormat == GpuIndexFormat.UINT16 ? 2 : 4), instanceCount, baseVertex);
         } else {
-            GL45C.glDrawElementsInstancedBaseVertexBaseInstance(toGlEnum(renderPass.pipeline.primitiveState().topology()), indexCount, toGlEnum(renderPass.indexFormat), (long) baseIndex * (renderPass.indexFormat == GpuIndexFormat.UINT16 ? 2 : 4), instanceCount, baseVertex, baseInstance);
+            GL45C.glDrawElementsInstancedBaseVertexBaseInstance(GlUtils.toGlEnum(renderPass.pipeline.primitiveState().topology()), indexCount, GlUtils.toGlEnum(renderPass.indexFormat), (long) baseIndex * (renderPass.indexFormat == GpuIndexFormat.UINT16 ? 2 : 4), instanceCount, baseVertex, baseInstance);
         }
-
-        GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_DEPTH_ATTACHMENT, 0, 0);
-        GL45C.glBindFramebuffer(GL45C.GL_FRAMEBUFFER, 0);
-        GL45C.glColorMask(true, true, true, true);
     }
 
     void draw(GlRenderPass renderPass, int count, int instanceCount, int baseVertex, int baseInstance) {
-        GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_COLOR_ATTACHMENT0, renderPass.color.handle(), 0);
-        GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_DEPTH_ATTACHMENT, renderPass.depth != null ? renderPass.depth.handle() : 0, 0);
-        GL45C.glNamedFramebufferDrawBuffer(this.fbo, GL45C.GL_COLOR_ATTACHMENT0);
-
-        GL45C.glBindFramebuffer(GL45C.GL_FRAMEBUFFER, this.fbo);
-
         this.setupResourcesAndPipelines(renderPass);
 
         int vao = this.getVertexArrayBuffer(renderPass.pipeline.vertexState());
@@ -318,7 +394,7 @@ public class GlDevice implements GpuDevice {
             GpuVertexBufferLayout layout = renderPass.pipeline.vertexState().buffers()[i];
 
             if (renderPass.vertexBuffers[i] != null) {
-                GL45C.glVertexArrayVertexBuffer(vao, i, ((GlBuffer) renderPass.vertexBuffers[i].buffer()).handle(), renderPass.vertexBuffers[i].buffer().offset(), layout.arrayStride());
+                GL45C.glVertexArrayVertexBuffer(vao, i, ((GlBuffer) renderPass.vertexBuffers[i].buffer()).handle(), renderPass.vertexBuffers[i].offset(), layout.arrayStride());
             } else {
                 GL45C.glVertexArrayVertexBuffer(vao, i, 0, 0, 0);
             }
@@ -326,19 +402,22 @@ public class GlDevice implements GpuDevice {
         GL45C.glBindVertexArray(vao);
 
         if (instanceCount == 1) {
-            GL45C.glDrawArrays(toGlEnum(renderPass.pipeline.primitiveState().topology()), baseVertex, count);
+            GL45C.glDrawArrays(GlUtils.toGlEnum(renderPass.pipeline.primitiveState().topology()), baseVertex, count);
         } else if (baseInstance == 0) {
-            GL45C.glDrawArraysInstanced(toGlEnum(renderPass.pipeline.primitiveState().topology()), baseVertex, count, instanceCount);
+            GL45C.glDrawArraysInstanced(GlUtils.toGlEnum(renderPass.pipeline.primitiveState().topology()), baseVertex, count, instanceCount);
         } else {
-            GL45C.glDrawArraysInstancedBaseInstance(toGlEnum(renderPass.pipeline.primitiveState().topology()), baseVertex, count, instanceCount, baseInstance);
+            GL45C.glDrawArraysInstancedBaseInstance(GlUtils.toGlEnum(renderPass.pipeline.primitiveState().topology()), baseVertex, count, instanceCount, baseInstance);
         }
-
-        GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_DEPTH_ATTACHMENT, 0, 0);
-        GL45C.glBindFramebuffer(GL45C.GL_FRAMEBUFFER, 0);
-        GL45C.glColorMask(true, true, true, true);
     }
 
     private void setupResourcesAndPipelines(GlRenderPass renderPass) {
+        if (renderPass.viewport != null) {
+            Vector4ic viewport = renderPass.viewport;
+            GL45C.glViewport(viewport.x(), viewport.y(), viewport.z(), viewport.w());
+        } else {
+            GL45C.glViewport(0, 0, renderPass.width(), renderPass.height());
+        }
+
         if (this._lastPipeline != renderPass.pipeline && !this.pipelineToUniforms.containsKey(renderPass.pipeline)) {
             GpuBindGroupLayout layout = renderPass.pipeline.bindGroupLayout();
             Object2IntMap<String> uniformToBinding = new Object2IntOpenHashMap<>();
@@ -431,57 +510,46 @@ public class GlDevice implements GpuDevice {
             this._lastPipeline = renderPass.pipeline;
         }
 
-        if (renderPass.viewport != null) {
-            Vector4ic viewport = renderPass.viewport;
-            GL45C.glViewport(viewport.x(), viewport.y(), viewport.z(), viewport.w());
-        } else {
-            GL45C.glViewport(0, 0, renderPass.color.width(), renderPass.color.height());
-        }
-
         if (renderPass.scissorRect != null) {
-            if (!this._scissorEnabled) {
-                GL45C.glEnable(GL45C.GL_SCISSOR_TEST);
-                this._scissorEnabled = true;
-            }
+            GL45C.glEnable(GL45C.GL_SCISSOR_TEST);
+
             Vector4ic scissorRect = renderPass.scissorRect;
             GL45C.glScissor(scissorRect.x(), scissorRect.y(), scissorRect.z(), scissorRect.w());
         } else {
-            if (this._scissorEnabled) {
-                GL45C.glDisable(GL45C.GL_SCISSOR_TEST);
-                this._scissorEnabled = false;
-            }
+            GL45C.glDisable(GL45C.GL_SCISSOR_TEST);
         }
 
         if (renderPass.pipeline.colorTargets() != null) {
-            for (GpuColorTargetState colorTargetState : renderPass.pipeline.colorTargets()) {
-                GpuBlendState blendState = colorTargetState.blendState();
-                if (blendState != null) {
-                    if (!this._blendEnabled) {
-                        GL45C.glEnable(GL45C.GL_BLEND);
-                        this._blendEnabled = true;
-                    }
-                    GpuBlendComponent color = blendState.color();
-                    GpuBlendComponent alpha = blendState.alpha();
+            GpuColorTargetState[] targets = renderPass.pipeline.colorTargets();
+            for (int i = 0; i < targets.length; i++) {
+                GpuColorTargetState state = targets[i];
 
-                    GL45C.glBlendEquationSeparate(toGlEnum(color.operation()), toGlEnum(alpha.operation()));
-                    GL45C.glBlendFuncSeparate(toGlEnum(color.srcFactor()), toGlEnum(color.dstFactor()), toGlEnum(alpha.srcFactor()), toGlEnum(alpha.dstFactor()));
-                    return;
+                if (state == null) {
+                    GL45C.glColorMaski(i, false, false, false, false);
+                    GL45C.glDisablei(GL45C.GL_BLEND, i);
+                    continue;
                 }
 
-                GL45C.glColorMask((colorTargetState.writeMask() & GpuColorWrite.RED) != 0,
-                        (colorTargetState.writeMask() & GpuColorWrite.GREEN) != 0,
-                        (colorTargetState.writeMask() & GpuColorWrite.BLUE) != 0,
-                        (colorTargetState.writeMask() & GpuColorWrite.ALL) != 0);
+                int mask = state.writeMask();
+                GL45C.glColorMaski(i,
+                        (mask & GpuColorWrite.RED) != 0,
+                        (mask & GpuColorWrite.GREEN) != 0,
+                        (mask & GpuColorWrite.BLUE) != 0,
+                        (mask & GpuColorWrite.ALPHA) != 0);
 
-                break;
+                GpuBlendState blend = state.blendState();
+                if (blend == null) {
+                    GL45C.glDisablei(GL45C.GL_BLEND, i);
+                } else {
+                    GpuBlendComponent c = blend.color();
+                    GpuBlendComponent a = blend.alpha();
+                    GL45C.glEnablei(GL45C.GL_BLEND, i);
+                    GL45C.glBlendEquationSeparatei(i, GlUtils.toGlEnum(c.operation()), GlUtils.toGlEnum(a.operation()));
+                    GL45C.glBlendFuncSeparatei(i,
+                            GlUtils.toGlEnum(c.srcFactor()), GlUtils.toGlEnum(c.dstFactor()),
+                            GlUtils.toGlEnum(a.srcFactor()), GlUtils.toGlEnum(a.dstFactor()));
+                }
             }
-        } else {
-            GL45C.glColorMask(true, true, true, true);
-        }
-
-        if (this._blendEnabled) {
-            GL45C.glDisable(GL45C.GL_BLEND);
-            this._blendEnabled = false;
         }
     }
 
@@ -497,9 +565,9 @@ public class GlDevice implements GpuDevice {
 
                     GL45C.glVertexArrayAttribBinding(handle, location, bindingIndex);
                     if (attribute.format().isInt) {
-                        GL45C.glVertexArrayAttribIFormat(handle, location, attribute.format().componentCount, toGlEnum(attribute.format()), attribute.offset());
+                        GL45C.glVertexArrayAttribIFormat(handle, location, attribute.format().componentCount, GlUtils.toGlEnum(attribute.format()), attribute.offset());
                     } else {
-                        GL45C.glVertexArrayAttribFormat(handle, location, attribute.format().componentCount, toGlEnum(attribute.format()), attribute.format().normalized, attribute.offset());
+                        GL45C.glVertexArrayAttribFormat(handle, location, attribute.format().componentCount, GlUtils.toGlEnum(attribute.format()), attribute.format().normalized, attribute.offset());
                     }
 
                     GL45C.glEnableVertexArrayAttrib(handle, attribute.shaderLocation());
@@ -518,138 +586,35 @@ public class GlDevice implements GpuDevice {
         GpuDepthStencilState depthStencilState = pipeline.depthStencilState();
 
         if (depthStencilState != null) {
-            if (!this._depthTestEnabled) {
-                GL45C.glEnable(GL45C.GL_DEPTH_TEST);
-                this._depthTestEnabled = true;
-            }
-
-            GL45C.glDepthFunc(toGlEnum(depthStencilState.depthCompare()));
-
-            if (!this._depthMaskEnabled) {
-                GL45C.glDepthMask(depthStencilState.depthWriteEnabled());
-                this._depthMaskEnabled = true;
-            }
+            GL45C.glEnable(GL45C.GL_DEPTH_TEST);
+            GL45C.glDepthFunc(GlUtils.toGlEnum(depthStencilState.depthCompare()));
+            GL45C.glDepthMask(depthStencilState.depthWriteEnabled());
         } else {
-            if (this._depthTestEnabled) {
-                GL45C.glDisable(GL45C.GL_DEPTH_TEST);
-                this._depthTestEnabled = false;
+            GL45C.glDisable(GL45C.GL_DEPTH_TEST);
+            GL45C.glDepthMask(false);
+        }
+
+        switch (pipeline.primitiveState().cullMode()) {
+            case NONE -> GL45C.glDisable(GL11C.GL_CULL_FACE);
+            case FRONT -> {
+                GL11C.glEnable(GL11C.GL_CULL_FACE);
+                GL11C.glCullFace(GL11C.GL_FRONT);
             }
-            if (this._depthMaskEnabled) {
-                GL45C.glDepthMask(false);
-                this._depthMaskEnabled = false;
+            case BACK -> {
+                GL11C.glEnable(GL11C.GL_CULL_FACE);
+                GL11C.glCullFace(GL11C.GL_BACK);
             }
         }
 
-        if (pipeline.primitiveState().cullMode() == GpuCullMode.NONE) {
-            if (this._cullEnabled) {
-                GL45C.glDisable(GL45C.GL_CULL_FACE);
-                this._cullEnabled = false;
-            }
-        } else {
-            if (!this._cullEnabled) {
-                GL45C.glEnable(GL45C.GL_CULL_FACE);
-                this._cullEnabled = true;
-            }
+        GL11C.glFrontFace(pipeline.primitiveState().frontFace() == GpuFrontFace.CW ? GL45C.GL_CW : GL45C.GL_CCW);
+    }
+
+    GlCommandBuffer acquireCommandBuffer() {
+        GlCommandBuffer commandBuffer = this.freeCommandBuffers.poll();
+        if (commandBuffer == null) {
+            commandBuffer = new GlCommandBuffer();
+            this.allCommandBuffers.add(commandBuffer);
         }
-    }
-
-    private static int toGlEnum(GpuAddressMode mode) {
-        return switch (mode) {
-            case REPEAT -> GL45C.GL_REPEAT;
-            case CLAMP_TO_EDGE -> GL45C.GL_CLAMP_TO_EDGE;
-        };
-    }
-
-    private static int toGlEnum(GpuFilterMode mode) {
-        return switch (mode) {
-            case NEAREST -> GL45C.GL_NEAREST;
-            case LINEAR -> GL45C.GL_LINEAR;
-        };
-    }
-
-    private static int toGlEnum(GpuPrimitiveTopology topology) {
-        return switch (topology) {
-            case LINE_LIST -> GL45C.GL_LINES;
-            case LINE_STRIP -> GL45C.GL_LINE_STRIP;
-            case TRIANGLE_LIST -> GL45C.GL_TRIANGLES;
-            case TRIANGLE_STRIP -> GL45C.GL_TRIANGLE_STRIP;
-        };
-    }
-
-    private static int toGlEnum(GpuTextureDimension dimension) {
-        return switch (dimension) {
-            case D1 -> GL45C.GL_TEXTURE_1D;
-            case D2 -> GL45C.GL_TEXTURE_2D;
-            case D3 -> GL45C.GL_TEXTURE_3D;
-        };
-    }
-
-    private static int toGlEnum(GpuTextureViewDimension textureViewDimension) {
-        return switch (textureViewDimension) {
-            case D1 -> GL45C.GL_TEXTURE_1D;
-            case D2 -> GL45C.GL_TEXTURE_2D;
-            case D2_ARRAY -> GL45C.GL_TEXTURE_2D_ARRAY;
-            case CUBE -> GL45C.GL_TEXTURE_CUBE_MAP;
-            case CUBE_ARRAY -> GL45C.GL_TEXTURE_CUBE_MAP_ARRAY;
-            case D3 -> GL45C.GL_TEXTURE_3D;
-        };
-    }
-
-    private static int toGlEnum(GpuTextureFormat format) {
-        return switch (format) {
-            case RGBA8UINT -> GL45C.GL_RGBA8;
-            case DEPTH32FLOAT -> GL45C.GL_DEPTH_COMPONENT32F;
-        };
-    }
-
-    private static int toGlEnum(GpuVertexFormat format) {
-        return switch (format) {
-            case UINT8, UINT8X2, UINT8X4, UNORM8, UNORM8X2, UNORM8X4 -> GL45C.GL_UNSIGNED_BYTE;
-            case SINT8, SINT8X2, SINT8X4, SNORM8, SNORM8X2, SNORM8X4 -> GL45C.GL_BYTE;
-            case UINT16, UINT16X2, UINT16X4, UNORM16, UNORM16X2, UNORM16X4 -> GL45C.GL_UNSIGNED_SHORT;
-            case SINT16, SINT16X2, SINT16X4, SNORM16, SNORM16X2, SNORM16X4 -> GL45C.GL_SHORT;
-            case FLOAT32, FLOAT32X2, FLOAT32X3, FLOAT32X4 -> GL45C.GL_FLOAT;
-            case UINT32, UINT32X2, UINT32X3, UINT32X4 -> GL45C.GL_UNSIGNED_INT;
-            case SINT32, SINT32X2, SINT32X3, SINT32X4 -> GL45C.GL_INT;
-        };
-    }
-
-    private static int toGlEnum(GpuCompareFunction function) {
-        return switch (function) {
-            case NEVER -> GL45C.GL_NEVER;
-            case LESS -> GL45C.GL_LESS;
-            case EQUAL -> GL45C.GL_EQUAL;
-            case LESS_EQUAL -> GL45C.GL_LEQUAL;
-            case GREATER -> GL45C.GL_GREATER;
-            case NOT_EQUAL -> GL45C.GL_NOTEQUAL;
-            case GREATER_EQUAL -> GL45C.GL_GEQUAL;
-            case ALWAYS -> GL45C.GL_ALWAYS;
-        };
-    }
-
-    private static int toGlEnum(GpuBlendOperation operation) {
-        return switch (operation) {
-            case ADD -> GL45C.GL_FUNC_ADD;
-            case SUBTRACT -> GL45C.GL_FUNC_SUBTRACT;
-            case REVERSE_SUBTRACT -> GL45C.GL_FUNC_REVERSE_SUBTRACT;
-        };
-    }
-
-    private static int toGlEnum(GpuBlendFactor factor) {
-        return switch (factor) {
-            case ZERO -> GL45C.GL_ZERO;
-            case ONE -> GL45C.GL_ONE;
-            case SRC_ALPHA -> GL45C.GL_SRC_ALPHA;
-            case ONE_MINUS_SRC_ALPHA -> GL45C.GL_ONE_MINUS_SRC_ALPHA;
-            case DST_ALPHA -> GL45C.GL_DST_ALPHA;
-            case ONE_MINUS_DST_ALPHA -> GL45C.GL_ONE_MINUS_DST_ALPHA;
-        };
-    }
-
-    private static int toGlEnum(GpuIndexFormat format) {
-        return switch (format) {
-            case UINT16 -> GL45C.GL_UNSIGNED_SHORT;
-            case UINT32 -> GL45C.GL_UNSIGNED_INT;
-        };
+        return commandBuffer;
     }
 }

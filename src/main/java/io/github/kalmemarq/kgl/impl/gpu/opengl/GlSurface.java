@@ -7,7 +7,7 @@ import org.lwjgl.system.MemoryUtil;
 
 import java.util.EnumSet;
 
-public class GlSurface implements GpuSurface {
+class GlSurface implements GpuSurface {
     private final long windowHandle;
     private final EnumSet<PresentMode> supportedPresentModes;
 

@@ -5,7 +5,7 @@ import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuTextureDescriptor;
 import org.jspecify.annotations.Nullable;
 import org.lwjgl.opengl.GL45C;
 
-public record GlTexture(int handle, GpuTextureDescriptor descriptor) implements GpuTexture {
+record GlTexture(int handle, GpuTextureDescriptor descriptor) implements GpuTexture {
     @Override
     public GpuTextureDimension dimension() {
         return this.descriptor.dimension();

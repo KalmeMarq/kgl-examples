@@ -164,13 +164,16 @@ public class Cubes implements App {
 
     @Override
     public void render(Window window, GpuDevice device, RenderTarget mainTarget, int lastFps, ImGuiFrame imGuiFrame) {
-        device.clearColorTexture(mainTarget.color(), 0xff303030);
 
         this.proj.identity().perspective((float) Math.toRadians(60), window.width() / (float) window.height(), 0.1f, 1000f);
         this.view.identity().lookAt(this.eye, this.at, this.up);
         this.projView.set(this.proj).mul(this.view);
 
         UBO_LAYOUT.put(device, this.ub, "proj_view", this.projView);
+
+        GpuCommandEncoder encoder = device.createCommandEncoder();
+        encoder.clearColorTexture(mainTarget.color(), 0xff303030);
+        device.submit(encoder.finish());
 
         try (GpuRenderPass renderPass = device.createRenderPass(mainTarget.color(), null)) {
             renderPass.setPipeline(this.pipelines[((r.get() ? 1 : 0) * 8) + ((g.get() ? 1 : 0) * 4) + ((b.get() ? 1 : 0) * 2) + (a.get() ? 1 : 0)]);

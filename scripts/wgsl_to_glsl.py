@@ -33,13 +33,34 @@ def compile_wgsl_to_spirv(source: str):
     try:
         subprocess.run(
             ["naga", "--generate-debug-symbols", "--input-kind", "wgsl", "--keep-coordinate-space", "--compact", str(tmp_pre_file), str(tmp_out_file)],
-            check=True, capture_output=True, text=True
+            check=True, text=True
         )
     except Exception as e:
         tmp_pre_file.unlink()
         raise e
 
     tmp_pre_file.unlink()
+    data = tmp_out_file.read_bytes()
+    tmp_out_file.unlink()
+    return data
+
+
+def optimize_spirv(spirv_data: bytes):
+    tmp_in_file = Path("in.spv")
+    tmp_out_file = Path("out.spv")
+
+    tmp_in_file.write_bytes(spirv_data)
+
+    try:
+        subprocess.run(
+            ["spirv-opt", "-O", "--strip-debug", "--strip-nonsemantic", "--simplify-instructions", str(tmp_in_file), "-o", str(tmp_out_file)],
+            check=True, text=True
+        )
+    except Exception as e:
+        tmp_in_file.unlink()
+        raise e
+
+    tmp_in_file.unlink()
     data = tmp_out_file.read_bytes()
     tmp_out_file.unlink()
     return data
@@ -146,7 +167,7 @@ def compile_spirv_to_glsl(data: bytes, stage: str):
                 "--stage", "vert" if stage == "vertex" else "frag",
                 "--entry", "vs_main" if stage == "vertex" else "fs_main",
                 "--output", str(out_file),
-                # "--remove-unused-variables",
+                "--remove-unused-variables",
                 "--separate-shader-objects",
                 str(in_file)
             ],
@@ -187,7 +208,7 @@ def apply_remapped_resources(glsl: str, remapped: dict[str, int]):
 def process(source: str, inc_dir: Path | None):
     source = resolve_includes(source, inc_dir)
 
-    spirv_data = compile_wgsl_to_spirv(source)
+    spirv_data = optimize_spirv(compile_wgsl_to_spirv(source))
 
     vert_glsl = compile_spirv_to_glsl(spirv_data, "vertex")
     frag_glsl = compile_spirv_to_glsl(spirv_data, "fragment")
