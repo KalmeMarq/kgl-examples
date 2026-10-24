@@ -19,7 +19,10 @@ import java.nio.ByteBuffer;
 import java.nio.file.Files;
 
 public class Cubes implements App {
-    private static final UboLayout UBO_LAYOUT = new UboLayout("proj", UboLayout.MemberType.MAT4x4, "view", UboLayout.MemberType.MAT4x4, "model", UboLayout.MemberType.MAT4x4);
+    private static final UboLayout UBO_LAYOUT = new UboLayout.Builder()
+            .add("proj_view", UboLayout.Type.MAT4x4)
+            .add("model", UboLayout.Type.MAT4x4)
+            .build();
     public static final PosColorVertex[] CUBE_VERTICES = {
             new PosColorVertex(-1.0f,  1.0f,  1.0f, 0xff000000),
             new PosColorVertex( 1.0f,  1.0f,  1.0f, 0xff0000ff),
@@ -40,6 +43,7 @@ public class Cubes implements App {
     private Matrix4f proj;
     private Matrix4f view;
     private Matrix4f model;
+    private Matrix4f projView;
 
     private GpuBuffer vbh;
     private GpuBuffer ibh;
@@ -64,6 +68,7 @@ public class Cubes implements App {
         this.proj = new Matrix4f();
         this.view = new Matrix4f();
         this.model = new Matrix4f();
+        this.projView = new Matrix4f();
 
         String vs_cubes = IoUtils.unchecked(() -> Files.readString(IoUtils.jarPath.resolve("shaders/cubes.vsh")));
         String fs_cubes = IoUtils.unchecked(() -> Files.readString(IoUtils.jarPath.resolve("shaders/cubes.fsh")));
@@ -73,7 +78,7 @@ public class Cubes implements App {
                 .withDepthStencilState(new GpuDepthStencilState(GpuTextureFormat.DEPTH32FLOAT, true, GpuCompareFunction.LESS_EQUAL))
                 .withVertexBuffer(new GpuVertexBufferLayout(GpuVertexFormat.FLOAT32X3, GpuVertexFormat.UNORM8X4))
                 .withBindGroupLayout(new GpuBindGroupLayout(
-                        new GpuBindGroupLayoutEntry.Buffer("uniforms", 0)
+                        new GpuBindGroupLayoutEntry.UniformBuffer("uniforms", 0)
                 ));
 
         this.pipelines = new GpuRenderPipeline[16];
@@ -91,7 +96,7 @@ public class Cubes implements App {
 
                         RenderPipeline pipeline = pipelineBuilder.withColorTargets(colorTargetState).build();
 
-                        this.pipelines[i] = device.createRenderPipeline(vs_cubes, fs_cubes, pipeline.primitiveState(), pipeline.depthStencilState(), pipeline.vertexState(), pipeline.bindGroupLayout(), pipeline.colorTargets());
+                        this.pipelines[i] = device.createRenderPipeline(pipeline.toDescriptor(vs_cubes, fs_cubes));
 
                         ++i;
                     }
@@ -163,9 +168,9 @@ public class Cubes implements App {
 
         this.proj.identity().perspective((float) Math.toRadians(60), window.width() / (float) window.height(), 0.1f, 1000f);
         this.view.identity().lookAt(this.eye, this.at, this.up);
+        this.projView.set(this.proj).mul(this.view);
 
-        UBO_LAYOUT.put(device, this.ub, "proj", this.proj);
-        UBO_LAYOUT.put(device, this.ub, "view", this.view);
+        UBO_LAYOUT.put(device, this.ub, "proj_view", this.projView);
 
         try (GpuRenderPass renderPass = device.createRenderPass(mainTarget.color(), null)) {
             renderPass.setPipeline(this.pipelines[((r.get() ? 1 : 0) * 8) + ((g.get() ? 1 : 0) * 4) + ((b.get() ? 1 : 0) * 2) + (a.get() ? 1 : 0)]);

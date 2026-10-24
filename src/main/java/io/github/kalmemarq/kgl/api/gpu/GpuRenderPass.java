@@ -11,6 +11,8 @@ public interface GpuRenderPass extends AutoCloseable {
     void drawIndexed(int indexCount);
     void drawIndexed(int indexCount, int instanceCount, int baseIndex, int baseVertex, int baseInstance);
     void draw(int count);
+    void draw(int count, int instanceCount);
+    void draw(int count, int instanceCount, int baseVertex, int baseInstance);
 
     @Override
     void close();

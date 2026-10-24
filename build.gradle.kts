@@ -54,6 +54,7 @@ java {
 }
 
 val shadersDir = file("src/main/resources/shaders")
+val shaderIncludesDir = file("src/main/resources/shaders/include")
 val generatedShadersDir = layout.buildDirectory.dir("generated/shaders")
 
 tasks.register<Exec>("convertWgslShaders") {
@@ -65,7 +66,7 @@ tasks.register<Exec>("convertWgslShaders") {
 
     workingDir = projectDir
 
-    commandLine("python3", "scripts/wgsl2glsl.py", generatedShadersDir.get().asFile.absolutePath)
+    commandLine("python3", "scripts/wgsl_to_glsl.py", "--src", shadersDir.absolutePath, "--dst", generatedShadersDir.get().asFile.absolutePath, "--inc", shaderIncludesDir.absolutePath)
 
     onlyIf {
         shadersDir.exists() && shadersDir.listFiles()?.any { it.extension == "wgsl" } == true

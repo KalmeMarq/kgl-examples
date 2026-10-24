@@ -18,7 +18,9 @@ import java.nio.ByteBuffer;
 import java.nio.file.Files;
 
 public class ImGuiImplKgl {
-    private static final UboLayout UNIFORMS_LAYOUT = new UboLayout("proj", UboLayout.MemberType.MAT4x4);
+    private static final UboLayout UNIFORMS_LAYOUT = new UboLayout.Builder()
+            .add("proj", UboLayout.Type.MAT4x4)
+            .build();
     private static final GpuVertexBufferLayout VERTEX_LAYOUT = new GpuVertexBufferLayout(
             GpuVertexFormat.FLOAT32X2,
             GpuVertexFormat.FLOAT32X2,
@@ -36,7 +38,7 @@ public class ImGuiImplKgl {
                     )
             )
             .withBindGroupLayout(new GpuBindGroupLayout(
-                    new GpuBindGroupLayoutEntry.Buffer("uniforms", 0),
+                    new GpuBindGroupLayoutEntry.UniformBuffer("uniforms", 0),
                     new GpuBindGroupLayoutEntry.Texture("txr", 1),
                     new GpuBindGroupLayoutEntry.Sampler("smp", 2)
             ))
@@ -68,7 +70,7 @@ public class ImGuiImplKgl {
     private void createPipeline() {
         String vs_cubes = IoUtils.unchecked(() -> Files.readString(IoUtils.jarPath.resolve("shaders/imgui.vsh")));
         String fs_cubes = IoUtils.unchecked(() -> Files.readString(IoUtils.jarPath.resolve("shaders/imgui.fsh")));
-        this.pipeline = this.device.createRenderPipeline(vs_cubes, fs_cubes, PIPELINE_DESC);
+        this.pipeline = this.device.createRenderPipeline(PIPELINE_DESC.toDescriptor(vs_cubes, fs_cubes));
     }
 
     private void createFontsTexture() {

@@ -107,7 +107,17 @@ class GlRenderPass implements GpuRenderPass {
 
     @Override
     public void draw(int count) {
-        this.device.draw(this, count);
+        this.device.draw(this, count, 1, 0, 0);
+    }
+
+    @Override
+    public void draw(int count, int instanceCount) {
+        this.device.draw(this, count, instanceCount, 0, 0);
+    }
+
+    @Override
+    public void draw(int count, int instanceCount, int baseVertex, int baseInstance) {
+        this.device.draw(this, count, instanceCount, baseVertex, baseInstance);
     }
 
     @Override

@@ -4,7 +4,8 @@ public sealed interface GpuBindGroupLayoutEntry {
     String name();
     int binding();
 
-    record Buffer(String name, int binding) implements GpuBindGroupLayoutEntry {}
+    record UniformBuffer(String name, int binding) implements GpuBindGroupLayoutEntry {}
+    record StorageBuffer(String name, int binding) implements GpuBindGroupLayoutEntry {}
     record Texture(String name, int binding) implements GpuBindGroupLayoutEntry {}
     record Sampler(String name, int binding) implements GpuBindGroupLayoutEntry {}
 }

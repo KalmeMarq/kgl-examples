@@ -37,7 +37,7 @@ public interface App {
 
         ImGuiKgl imGuiKgl = new ImGuiKgl();
         imGuiKgl.init(window, device);
-        RenderTarget target = new RenderTarget(GpuTextureFormat.RGBA8UINT, null);
+        RenderTarget target = new RenderTarget(GpuTextureFormat.RGBA8UINT, GpuTextureFormat.DEPTH32FLOAT);
 
         app.initialize(window, device);
 
@@ -88,7 +88,6 @@ public interface App {
             while (System.currentTimeMillis() - lastTime >= 1000L) {
                 lastTime += 1000L;
                 lastFps = frames;
-                IO.println(frames + " FPS");
                 frames = 0;
             }
         }

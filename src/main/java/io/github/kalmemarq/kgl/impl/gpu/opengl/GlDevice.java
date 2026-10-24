@@ -1,9 +1,7 @@
 package io.github.kalmemarq.kgl.impl.gpu.opengl;
 
 import io.github.kalmemarq.kgl.api.gpu.*;
-import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuBufferDescriptor;
-import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuSamplerDescriptor;
-import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuTextureDescriptor;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.*;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Reference2ObjectMap;
@@ -109,6 +107,10 @@ public class GlDevice implements GpuDevice {
 
     @Override
     public GpuBuffer createBuffer(GpuBufferDescriptor descriptor) {
+        if (this.validation) {
+            GlValidator.validateCreateBuffer(this, descriptor);
+        }
+
         int handle = GL45C.glCreateBuffers();
         GL45C.glNamedBufferStorage(handle, descriptor.size(), GL45C.GL_DYNAMIC_STORAGE_BIT);
 
@@ -118,20 +120,28 @@ public class GlDevice implements GpuDevice {
     }
 
     @Override
-    public GpuRenderPipeline createRenderPipeline(String vertexSrc, String fragmentSrc, GpuPrimitiveState primitiveState, GpuDepthStencilState depthStencilState, GpuVertexState vertexState, GpuBindGroupLayout bindGroupLayout, GpuColorTargetState[] colorTargets) {
-        int vertexShader = GL45C.glCreateShaderProgramv(GL45C.GL_VERTEX_SHADER, vertexSrc);
-        int fragmentShader = GL45C.glCreateShaderProgramv(GL45C.GL_FRAGMENT_SHADER, fragmentSrc);
+    public GpuRenderPipeline createRenderPipeline(GpuRenderPipelineDescriptor descriptor) {
+        int vertexShader = GL45C.glCreateShaderProgramv(GL45C.GL_VERTEX_SHADER, descriptor.source().vertex());
+        int fragmentShader = GL45C.glCreateShaderProgramv(GL45C.GL_FRAGMENT_SHADER, descriptor.source().fragment());
         int shaderPipeline = GL45C.glCreateProgramPipelines();
+
+        if (descriptor.label() != null) KHRDebug.glObjectLabel(KHRDebug.GL_PROGRAM_PIPELINE, shaderPipeline, descriptor.label());
+
         GL45C.glUseProgramStages(shaderPipeline, GL45C.GL_VERTEX_SHADER_BIT, vertexShader);
         GL45C.glUseProgramStages(shaderPipeline, GL45C.GL_FRAGMENT_SHADER_BIT, fragmentShader);
         if (!GL45C.glGetProgramInfoLog(vertexShader).isEmpty()) IO.println(GL45C.glGetProgramInfoLog(vertexShader));
         if (!GL45C.glGetProgramInfoLog(fragmentShader).isEmpty()) IO.println(GL45C.glGetProgramInfoLog(fragmentShader));
-        return new GlRenderPipeline(shaderPipeline, vertexShader, fragmentShader, primitiveState, depthStencilState, vertexState, bindGroupLayout, colorTargets);
+        return new GlRenderPipeline(shaderPipeline, vertexShader, fragmentShader, descriptor.primitive(), descriptor.depthStencil(), descriptor.vertex(), descriptor.bindGroupLayouts()[0], descriptor.fragment().targets());
     }
 
     @Override
-    public GpuRenderPass createRenderPass(GpuTexture colorTexture, @Nullable GpuTexture depthStencilTexture) {
-        return new GlRenderPass(this, (GlTexture) colorTexture, (GlTexture) depthStencilTexture);
+    public GpuRenderPass createRenderPass(GpuTexture colorAttachment, @Nullable GpuTexture depthStencilAttachment) {
+        return new GlRenderPass(this, (GlTexture) colorAttachment, (GlTexture) depthStencilAttachment);
+    }
+
+    @Override
+    public GpuRenderPass createRenderPass(GpuRenderPassDescriptor descriptor) {
+        return new GlRenderPass(this, descriptor.colorAttachments().length == 0 ? null : (GlTexture) descriptor.colorAttachments()[0].texture(), descriptor.depthStencilAttachment() == null ? null : (GlTexture) descriptor.depthStencilAttachment().texture());
     }
 
     @Override
@@ -150,7 +160,7 @@ public class GlDevice implements GpuDevice {
     }
 
     @Override
-    public void copyToBuffer(GpuBufferSlice src, GpuBufferSlice dst) {
+    public void copyBufferToBuffer(GpuBufferSlice src, GpuBufferSlice dst) {
         GlBuffer srcBuffer = (GlBuffer) src.buffer();
         GlBuffer dstBuffer = (GlBuffer) dst.buffer();
 
@@ -294,7 +304,7 @@ public class GlDevice implements GpuDevice {
         GL45C.glColorMask(true, true, true, true);
     }
 
-    void draw(GlRenderPass renderPass, int count) {
+    void draw(GlRenderPass renderPass, int count, int instanceCount, int baseVertex, int baseInstance) {
         GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_COLOR_ATTACHMENT0, renderPass.color.handle(), 0);
         GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_DEPTH_ATTACHMENT, renderPass.depth != null ? renderPass.depth.handle() : 0, 0);
         GL45C.glNamedFramebufferDrawBuffer(this.fbo, GL45C.GL_COLOR_ATTACHMENT0);
@@ -315,7 +325,13 @@ public class GlDevice implements GpuDevice {
         }
         GL45C.glBindVertexArray(vao);
 
-        GL45C.glDrawArrays(toGlEnum(renderPass.pipeline.primitiveState().topology()), 0, count);
+        if (instanceCount == 1) {
+            GL45C.glDrawArrays(toGlEnum(renderPass.pipeline.primitiveState().topology()), baseVertex, count);
+        } else if (baseInstance == 0) {
+            GL45C.glDrawArraysInstanced(toGlEnum(renderPass.pipeline.primitiveState().topology()), baseVertex, count, instanceCount);
+        } else {
+            GL45C.glDrawArraysInstancedBaseInstance(toGlEnum(renderPass.pipeline.primitiveState().topology()), baseVertex, count, instanceCount, baseInstance);
+        }
 
         GL45C.glNamedFramebufferTexture(this.fbo, GL45C.GL_DEPTH_ATTACHMENT, 0, 0);
         GL45C.glBindFramebuffer(GL45C.GL_FRAMEBUFFER, 0);
@@ -327,38 +343,41 @@ public class GlDevice implements GpuDevice {
             GpuBindGroupLayout layout = renderPass.pipeline.bindGroupLayout();
             Object2IntMap<String> uniformToBinding = new Object2IntOpenHashMap<>();
 
-            List<Map.Entry<String, GpuBindGroupLayoutEntry>> ubo = layout.entries().entrySet().stream().filter(it -> it.getValue() instanceof GpuBindGroupLayoutEntry.Buffer).sorted(Comparator.comparingInt(a -> a.getValue().binding())).toList();
+            List<Map.Entry<String, GpuBindGroupLayoutEntry>> ubo = layout.entries().entrySet().stream().filter(it -> it.getValue() instanceof GpuBindGroupLayoutEntry.UniformBuffer).sorted(Comparator.comparingInt(a -> a.getValue().binding())).toList();
+            List<Map.Entry<String, GpuBindGroupLayoutEntry>> ssbo = layout.entries().entrySet().stream().filter(it -> it.getValue() instanceof GpuBindGroupLayoutEntry.StorageBuffer).sorted(Comparator.comparingInt(a -> a.getValue().binding())).toList();
             List<Map.Entry<String, GpuBindGroupLayoutEntry>> txr = layout.entries().entrySet().stream().filter(it -> it.getValue() instanceof GpuBindGroupLayoutEntry.Texture).sorted(Comparator.comparingInt(a -> a.getValue().binding())).toList();
             List<Map.Entry<String, GpuBindGroupLayoutEntry>> smp = layout.entries().entrySet().stream().filter(it -> it.getValue() instanceof GpuBindGroupLayoutEntry.Sampler).sorted(Comparator.comparingInt(a -> a.getValue().binding())).toList();
 
-            int uboIdx = -1;
+            int uboIdx = 0;
 
             for (var entry : ubo) {
                 String name = entry.getKey();
-                GpuBindGroupLayoutEntry l = entry.getValue();
-                uboIdx = uboIdx == -1 ? l.binding() : uboIdx + 1;
-
                 uniformToBinding.put(name, uboIdx);
+                ++uboIdx;
             }
 
-            int txrIdx = -1;
+            int ssboIdx = 0;
+
+            for (var entry : ssbo) {
+                String name = entry.getKey();
+                uniformToBinding.put(name, ssboIdx + 300);
+                ++ssboIdx;
+            }
+
+            int txrIdx = 0;
 
             for (var entry : txr) {
                 String name = entry.getKey();
-                GpuBindGroupLayoutEntry l = entry.getValue();
-                txrIdx = txrIdx == -1 ? 0 : txrIdx + 1;
-
                 uniformToBinding.put(name, txrIdx + 100);
+                ++txrIdx;
             }
 
-            int smpIdx = -1;
+            int smpIdx = 0;
 
             for (var entry : smp) {
                 String name = entry.getKey();
-                GpuBindGroupLayoutEntry l = entry.getValue();
-                smpIdx = smpIdx == -1 ? 0 : smpIdx + 1;
-
                 uniformToBinding.put(name, smpIdx + 200);
+                ++smpIdx;
             }
 
             this.pipelineToUniforms.put(renderPass.pipeline, uniformToBinding);
@@ -375,7 +394,11 @@ public class GlDevice implements GpuDevice {
                 }
 
                 if (binding < 100) {
-                    GL45C.glBindBufferBase(GL45C.GL_UNIFORM_BUFFER, binding, ((GlBuffer) entry.getValue()).handle());
+                    if (entry.getValue() instanceof GlBufferSlice(GlBuffer buffer, long offset, long size)) {
+                        GL45C.glBindBufferRange(GL45C.GL_UNIFORM_BUFFER, binding, buffer.handle(), offset, size);
+                    } else if (entry.getValue() instanceof GlBuffer glBuffer) {
+                        GL45C.glBindBufferBase(GL45C.GL_UNIFORM_BUFFER, binding, glBuffer.handle());
+                    }
                 } else if (binding < 200) {
                     binding -= 100;
                     GlRenderPass.TextureAndSampler texSamp = (GlRenderPass.TextureAndSampler) entry.getValue();
@@ -391,6 +414,12 @@ public class GlDevice implements GpuDevice {
                     if (this._boundSamplers[binding] != samplerId) {
                         GL45C.glBindSampler(binding, samplerId);
                         this._boundSamplers[binding] = samplerId;
+                    }
+                } else if (binding >= 300) {
+                    if (entry.getValue() instanceof GlBufferSlice(GlBuffer buffer, long offset, long size)) {
+                        GL45C.glBindBufferRange(GL45C.GL_SHADER_STORAGE_BUFFER, binding - 300, buffer.handle(), offset, size);
+                    } else if (entry.getValue() instanceof GlBuffer glBuffer) {
+                        GL45C.glBindBufferBase(GL45C.GL_SHADER_STORAGE_BUFFER, binding - 300, glBuffer.handle());
                     }
                 }
             }

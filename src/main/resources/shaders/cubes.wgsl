@@ -1,6 +1,5 @@
 struct Uniforms {
-    proj: mat4x4f,
-    view: mat4x4f,
+    proj_view: mat4x4f,
     model: mat4x4f,
 }
 
@@ -19,7 +18,7 @@ struct VertexOutput {
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out : VertexOutput;
-    out.position = uniforms.proj * uniforms.view * uniforms.model * vec4f(in.position, 1.0);
+    out.position = uniforms.proj_view * uniforms.model * vec4f(in.position, 1.0);
     out.color = in.color;
     return out;
 }

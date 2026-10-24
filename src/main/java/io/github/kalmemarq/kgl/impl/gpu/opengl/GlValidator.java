@@ -4,6 +4,7 @@ import io.github.kalmemarq.kgl.api.gpu.GpuTextureDimension;
 import io.github.kalmemarq.kgl.api.gpu.GpuTextureFormat;
 import io.github.kalmemarq.kgl.api.gpu.GpuTextureViewDimension;
 import io.github.kalmemarq.kgl.api.gpu.GpuValidationException;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuBufferDescriptor;
 import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuSamplerDescriptor;
 import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuTextureDescriptor;
 
@@ -69,5 +70,11 @@ public class GlValidator {
     }
 
     public static void validateCreateSampler(GlDevice device, GpuSamplerDescriptor descriptor) throws GpuValidationException {
+    }
+
+    public static void validateCreateBuffer(GlDevice device, GpuBufferDescriptor descriptor) throws GpuValidationException {
+        if (descriptor.usage() == 0) {
+            throw new GpuValidationException("Buffer usage must be specified");
+        }
     }
 }

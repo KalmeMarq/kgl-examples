@@ -18,6 +18,8 @@ public @interface GpuBufferUsage {
     int VERTEX = 0x0020;
     // The buffer can be used as a uniform buffer.
     int UNIFORM = 0x0040;
+    // The buffer can be used as a storage buffer.
+    int STORAGE = 0x0080;
     /// The buffer can be used as to store indirect command arguments.
     int INDIRECT = 0x0100;
 }

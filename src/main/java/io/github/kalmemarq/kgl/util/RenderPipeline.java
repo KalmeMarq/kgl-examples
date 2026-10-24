@@ -1,19 +1,22 @@
 package io.github.kalmemarq.kgl.util;
 
 import io.github.kalmemarq.kgl.api.gpu.*;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuFragmentState;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuRenderPipelineDescriptor;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
-public record RenderPipeline(String vertexName, String fragmentName, GpuVertexState vertexState,
+public record RenderPipeline(GpuVertexState vertexState,
                              GpuPrimitiveState primitiveState, GpuDepthStencilState depthStencilState,
                              GpuBindGroupLayout bindGroupLayout, GpuColorTargetState[] colorTargets) {
+    public GpuRenderPipelineDescriptor toDescriptor(String vertexSource, String fragmentSource) {
+        return new GpuRenderPipelineDescriptor(null, new GpuRenderPipelineDescriptor.ShaderSource(vertexSource, fragmentSource), this.bindGroupLayout, this.vertexState, this.primitiveState, this.depthStencilState, new GpuFragmentState(this.colorTargets));
+    }
+
     public static class Builder {
         private static final GpuBindGroupLayout EMPTY_BIND_GROUP_LAYOUT = new GpuBindGroupLayout();
         private static final GpuPrimitiveState DEFAULT_PRIMITIVE_STATE = new GpuPrimitiveState(GpuPrimitiveTopology.TRIANGLE_LIST);
-        private String vertexName;
-        private String fragmentName;
         private final List<GpuVertexBufferLayout> vertexStateBuffers;
         private GpuPrimitiveState primitiveState;
         private GpuDepthStencilState depthStencilState;
@@ -25,22 +28,6 @@ public record RenderPipeline(String vertexName, String fragmentName, GpuVertexSt
             this.vertexStateBuffers = new ArrayList<>();
             this.bindGroupLayout = EMPTY_BIND_GROUP_LAYOUT;
             this.primitiveState = DEFAULT_PRIMITIVE_STATE;
-        }
-
-        public Builder withShader(String name) {
-            this.vertexName = name;
-            this.fragmentName = name;
-            return this;
-        }
-
-        public Builder withVertex(String vertexName) {
-            this.vertexName = vertexName;
-            return this;
-        }
-
-        public Builder withFragment(String fragmentName) {
-            this.fragmentName = fragmentName;
-            return this;
         }
 
         public Builder withVertexBuffer(GpuVertexBufferLayout vertexBufferLayout) {
@@ -69,7 +56,7 @@ public record RenderPipeline(String vertexName, String fragmentName, GpuVertexSt
         }
 
         public RenderPipeline build() {
-            return new RenderPipeline(this.vertexName, this.fragmentName, new GpuVertexState(this.vertexStateBuffers.toArray(new GpuVertexBufferLayout[0])), this.primitiveState, this.depthStencilState, this.bindGroupLayout, this.colorTargets);
+            return new RenderPipeline(new GpuVertexState(this.vertexStateBuffers.toArray(new GpuVertexBufferLayout[0])), this.primitiveState, this.depthStencilState, this.bindGroupLayout, this.colorTargets);
         }
     }
 }
