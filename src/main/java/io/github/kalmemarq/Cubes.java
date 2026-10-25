@@ -5,6 +5,7 @@ import imgui.ImVec2;
 import imgui.type.ImBoolean;
 import io.github.kalmemarq.kgl.api.gpu.*;
 import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuBufferDescriptor;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuRenderPassDescriptor;
 import io.github.kalmemarq.kgl.api.window.Window;
 import io.github.kalmemarq.kgl.util.IoUtils;
 import io.github.kalmemarq.kgl.util.RenderPipeline;
@@ -164,7 +165,6 @@ public class Cubes implements App {
 
     @Override
     public void render(Window window, GpuDevice device, RenderTarget mainTarget, int lastFps, ImGuiFrame imGuiFrame) {
-
         this.proj.identity().perspective((float) Math.toRadians(60), window.width() / (float) window.height(), 0.1f, 1000f);
         this.view.identity().lookAt(this.eye, this.at, this.up);
         this.projView.set(this.proj).mul(this.view);
@@ -175,22 +175,23 @@ public class Cubes implements App {
         encoder.clearColorTexture(mainTarget.color(), 0xff303030);
         device.submit(encoder.finish());
 
-        try (GpuRenderPass renderPass = device.createRenderPass(mainTarget.color(), null)) {
-            renderPass.setPipeline(this.pipelines[((r.get() ? 1 : 0) * 8) + ((g.get() ? 1 : 0) * 4) + ((b.get() ? 1 : 0) * 2) + (a.get() ? 1 : 0)]);
-            renderPass.setVertexBuffer(0, this.vbh);
-            renderPass.setIndexBuffer(this.ibh, GpuIndexFormat.UINT32);
-            renderPass.setResource("uniforms", this.ub);
+        for (int y = 0; y < 11; ++y) {
+            for (int x = 0; x < 11; ++x) {
+                this.model.identity()
+                        .translate(-15f + x * 3f, -15f + y * 3f, 0f)
+                        .rotateXYZ(x * 0.21f + SDLTimer.SDL_GetTicks() / 1000f, y * 0.37f + SDLTimer.SDL_GetTicks() / 1000f, 0);
 
-            for (int y = 0; y < 11; ++y) {
-                for (int x = 0; x < 11; ++x) {
-                    this.model.identity()
-                            .translate(-15f + x * 3f, -15f + y * 3f, 0f)
-                            .rotateXYZ(x * 0.21f + SDLTimer.SDL_GetTicks() / 1000f, y * 0.37f + SDLTimer.SDL_GetTicks() / 1000f, 0);
+                UBO_LAYOUT.put(device, this.ub, "model", this.model);
 
-                    UBO_LAYOUT.put(device, this.ub, "model", this.model);
-
+                encoder = device.createCommandEncoder();
+                try (GpuRenderPass renderPass = encoder.beginRenderPass(new GpuRenderPassDescriptor(new GpuRenderPassDescriptor.ColorAttachment(mainTarget.color())))) {
+                    renderPass.setPipeline(this.pipelines[((r.get() ? 1 : 0) * 8) + ((g.get() ? 1 : 0) * 4) + ((b.get() ? 1 : 0) * 2) + (a.get() ? 1 : 0)]);
+                    renderPass.setVertexBuffer(0, this.vbh);
+                    renderPass.setIndexBuffer(this.ibh, GpuIndexFormat.UINT32);
+                    renderPass.setResource("uniforms", this.ub);
                     renderPass.drawIndexed(36);
                 }
+                device.submit(encoder.finish());
             }
         }
 

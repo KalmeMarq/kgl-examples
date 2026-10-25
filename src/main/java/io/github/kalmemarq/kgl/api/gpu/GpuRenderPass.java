@@ -8,10 +8,21 @@ public interface GpuRenderPass extends AutoCloseable {
     void setScissorRect(int x, int y, int width, int height);
     void setVertexBuffer(int slot, GpuBufferSlice buffer);
     void setIndexBuffer(GpuBuffer buffer, GpuIndexFormat format);
-    void drawIndexed(int indexCount);
+
+    default void drawIndexed(int indexCount) {
+        this.drawIndexed(indexCount, 1, 0, 0, 0);
+    }
+
     void drawIndexed(int indexCount, int instanceCount, int baseIndex, int baseVertex, int baseInstance);
-    void draw(int count);
-    void draw(int count, int instanceCount);
+
+    default void draw(int count) {
+        this.draw(count, 1, 0, 0);
+    }
+
+    default void draw(int count, int instanceCount) {
+        this.draw(count, instanceCount, 0, 0);
+    }
+
     void draw(int count, int instanceCount, int baseVertex, int baseInstance);
 
     @Override

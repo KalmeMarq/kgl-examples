@@ -1,7 +1,9 @@
 package io.github.kalmemarq.kgl.api.gpu;
 
-import io.github.kalmemarq.kgl.api.gpu.descriptor.*;
-import org.jspecify.annotations.Nullable;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuBufferDescriptor;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuRenderPipelineDescriptor;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuSamplerDescriptor;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuTextureDescriptor;
 
 import java.nio.ByteBuffer;
 
@@ -13,11 +15,6 @@ public interface GpuDevice extends AutoCloseable {
     GpuBuffer createBuffer(GpuBufferDescriptor descriptor);
     GpuRenderPipeline createRenderPipeline(GpuRenderPipelineDescriptor descriptor);
     GpuCommandEncoder createCommandEncoder();
-
-    //
-    GpuRenderPass createRenderPass(GpuTexture colorAttachment, @Nullable GpuTexture depthStencilAttachment);
-    GpuRenderPass createRenderPass(GpuRenderPassDescriptor descriptor);
-    //
 
     void writeToBuffer(GpuBufferSlice bufferSlice, ByteBuffer data);
     void writeToTexture(GpuTexture texture, ByteBuffer data);

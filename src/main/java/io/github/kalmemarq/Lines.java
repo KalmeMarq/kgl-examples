@@ -6,6 +6,7 @@ import imgui.type.ImBoolean;
 import io.github.kalmemarq.kgl.api.gpu.*;
 import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuBufferDescriptor;
 import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuFragmentState;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuRenderPassDescriptor;
 import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuRenderPipelineDescriptor;
 import io.github.kalmemarq.kgl.api.window.Event;
 import io.github.kalmemarq.kgl.api.window.Window;
@@ -240,10 +241,9 @@ public class Lines implements App {
 
         GpuCommandEncoder encoder = device.createCommandEncoder();
         encoder.clearColorAndDepthTextures(target.color(), 0xFF_181818, target.depth(), 1);
-        device.submit(encoder.finish());
 
         if (!this.useInstancing.get() && !this.useSSBO.get()) {
-            try (GpuRenderPass renderPass = device.createRenderPass(target.color(), target.depth())) {
+            try (GpuRenderPass renderPass = encoder.beginRenderPass(new GpuRenderPassDescriptor(new GpuRenderPassDescriptor.ColorAttachment(target.color()), new GpuRenderPassDescriptor.DepthStencilAttachment(target.depth())))) {
                 renderPass.setPipeline(this.pipeline);
                 renderPass.setResource("uniforms", this.ubo);
                 renderPass.setVertexBuffer(0, this.vbo);
@@ -251,14 +251,14 @@ public class Lines implements App {
                 renderPass.drawIndexed(lines * 6);
             }
         } else if (!this.useSSBO.get()) {
-            try (GpuRenderPass renderPass = device.createRenderPass(target.color(), target.depth())) {
+            try (GpuRenderPass renderPass = encoder.beginRenderPass(new GpuRenderPassDescriptor(new GpuRenderPassDescriptor.ColorAttachment(target.color()), new GpuRenderPassDescriptor.DepthStencilAttachment(target.depth())))) {
                 renderPass.setPipeline(this.pipelineInstanced);
                 renderPass.setResource("uniforms", this.ubo);
                 renderPass.setVertexBuffer(0, this.vboInstanced);
                 renderPass.draw(lines * 4, lines);
             }
         } else {
-            try (GpuRenderPass renderPass = device.createRenderPass(target.color(), target.depth())) {
+            try (GpuRenderPass renderPass = encoder.beginRenderPass(new GpuRenderPassDescriptor(new GpuRenderPassDescriptor.ColorAttachment(target.color()), new GpuRenderPassDescriptor.DepthStencilAttachment(target.depth())))) {
                 renderPass.setPipeline(this.pipelineStorage);
                 renderPass.setResource("uniforms", this.ubo);
                 renderPass.setResource("lines", this.ssbo.slice(0, lines * 28L));
@@ -266,7 +266,6 @@ public class Lines implements App {
             }
         }
 
-        encoder = device.createCommandEncoder();
         encoder.clearDepthTexture(target.depth(), 1);
         device.submit(encoder.finish());
 

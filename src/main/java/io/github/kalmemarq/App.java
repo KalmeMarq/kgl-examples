@@ -4,6 +4,7 @@ import imgui.ImDrawData;
 import imgui.ImGui;
 import io.github.kalmemarq.imgui.ImGuiKgl;
 import io.github.kalmemarq.kgl.api.gpu.*;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuRenderPassDescriptor;
 import io.github.kalmemarq.kgl.api.window.Event;
 import io.github.kalmemarq.kgl.api.window.Window;
 import io.github.kalmemarq.kgl.api.window.WindowConfig;
@@ -61,11 +62,15 @@ public interface App {
 
                 ImGui.render();
 
-                try (GpuRenderPass renderPass = device.createRenderPass(target.color(), null)) {
-                    ImDrawData drawData = ImGui.getDrawData();
-                    imGuiKgl.uploadData(drawData);
+                ImDrawData drawData = ImGui.getDrawData();
+                imGuiKgl.uploadData(drawData);
+
+                GpuCommandEncoder encoder = device.createCommandEncoder();
+                try (GpuRenderPass renderPass = encoder.beginRenderPass(new GpuRenderPassDescriptor(new GpuRenderPassDescriptor.ColorAttachment(target.color())))) {
                     imGuiKgl.renderData(renderPass, drawData);
                 }
+                device.submit(encoder.finish());
+
                 this.started = false;
             }
         };

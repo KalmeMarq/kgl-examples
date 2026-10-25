@@ -87,7 +87,9 @@ public class Colors implements App {
         this.greenRT.resize(device, target.width(), target.height());
         this.blueRT.resize(device, target.width(), target.height());
 
-        try (GpuRenderPass renderPass = device.createRenderPass(new GpuRenderPassDescriptor(
+        GpuCommandEncoder encoder = device.createCommandEncoder();
+
+        try (GpuRenderPass renderPass = encoder.beginRenderPass(new GpuRenderPassDescriptor(
                 new GpuRenderPassDescriptor.ColorAttachment(this.allRT.color(), GpuLoadOp.CLEAR, GpuStoreOp.STORE, 0x181818),
                 new GpuRenderPassDescriptor.ColorAttachment(this.redRT.color(), GpuLoadOp.CLEAR, GpuStoreOp.STORE, 0x181818),
                 new GpuRenderPassDescriptor.ColorAttachment(this.greenRT.color(), GpuLoadOp.CLEAR, GpuStoreOp.STORE, 0x181818),
@@ -98,13 +100,13 @@ public class Colors implements App {
             renderPass.draw(3);
         }
 
-        GpuCommandEncoder encoder = device.createCommandEncoder();
         encoder.copyTextureToTexture(switch (this.channel.get()) {
             case 1 -> this.redRT.color();
             case 2 -> this.greenRT.color();
             case 3 -> this.blueRT.color();
             default -> this.allRT.color();
         }, new Vector3i(), target.color(), new Vector3i(), new Vector3i(target.width(), target.height(), 1));
+
         device.submit(encoder.finish());
 
         try (var _ = imGuiFrame.begin()) {

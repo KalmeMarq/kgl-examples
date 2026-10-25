@@ -97,14 +97,14 @@ class GlValidator {
             throw new GpuValidationException("Destination buffer usage does not include COPY_DST");
         }
     }
-
-    static void validateSetPipeline(GlRenderPass pass, GpuRenderPipeline pipeline) throws GpuValidationException {
-        GpuColorTargetState[] targets = pipeline.colorTargets();
-        GpuRenderPassDescriptor.ColorAttachment[] colors = pass.descriptor.colorAttachments();
-
-        int targetCount = targets == null ? 0 : targets.length;
-        if (targetCount != colors.length) {
-            throw new GpuValidationException("Pipeline has " + targetCount + " color targets but pass has " + colors.length);
-        }
-    }
+//
+//    static void validateSetPipeline(GlRenderPass pass, GpuRenderPipeline pipeline) throws GpuValidationException {
+//        GpuColorTargetState[] targets = pipeline.colorTargets();
+//        GpuRenderPassDescriptor.ColorAttachment[] colors = pass.descriptor.colorAttachments();
+//
+//        int targetCount = targets == null ? 0 : targets.length;
+//        if (targetCount != colors.length) {
+//            throw new GpuValidationException("Pipeline has " + targetCount + " color targets but pass has " + colors.length);
+//        }
+//    }
 }

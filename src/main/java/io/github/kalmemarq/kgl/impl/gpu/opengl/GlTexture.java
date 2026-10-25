@@ -3,9 +3,8 @@ package io.github.kalmemarq.kgl.impl.gpu.opengl;
 import io.github.kalmemarq.kgl.api.gpu.*;
 import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuTextureDescriptor;
 import org.jspecify.annotations.Nullable;
-import org.lwjgl.opengl.GL45C;
 
-record GlTexture(int handle, GpuTextureDescriptor descriptor) implements GpuTexture {
+record GlTexture(GlDevice device, int handle, GpuTextureDescriptor descriptor) implements GpuTexture {
     @Override
     public GpuTextureDimension dimension() {
         return this.descriptor.dimension();
@@ -43,6 +42,6 @@ record GlTexture(int handle, GpuTextureDescriptor descriptor) implements GpuText
 
     @Override
     public void close() {
-        GL45C.glDeleteTextures(this.handle);
+        this.device.deleteTexture(this);
     }
 }

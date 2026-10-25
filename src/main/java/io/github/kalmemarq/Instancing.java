@@ -6,6 +6,7 @@ import imgui.type.ImBoolean;
 import io.github.kalmemarq.kgl.api.gpu.*;
 import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuBufferDescriptor;
 import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuFragmentState;
+import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuRenderPassDescriptor;
 import io.github.kalmemarq.kgl.api.gpu.descriptor.GpuRenderPipelineDescriptor;
 import io.github.kalmemarq.kgl.api.window.Window;
 import io.github.kalmemarq.kgl.util.IoUtils;
@@ -164,14 +165,14 @@ public class Instancing implements App {
         device.submit(encoder.finish());
 
         if (this.m_useInstancing.get() && this.m_useInstancingV2.get()) {
-            try (GpuRenderPass renderPass = device.createRenderPass(mainTarget.color(), null)) {
-                this.model.identity().scale(scale);
-                UNIFORMS_LAYOUT.put(device, this.ub, "model", this.model);
+            this.model.identity().scale(scale);
+            UNIFORMS_LAYOUT.put(device, this.ub, "model", this.model);
+            GRID_UNIFORMS_LAYOUT.put(device, this.v2ub, "size", this.m_sideSize[0]);
+            GRID_UNIFORMS_LAYOUT.put(device, this.v2ub, "time", time);
+            GRID_UNIFORMS_LAYOUT.put(device, this.v2ub, "scale", scale);
 
-                GRID_UNIFORMS_LAYOUT.put(device, this.v2ub, "size", this.m_sideSize[0]);
-                GRID_UNIFORMS_LAYOUT.put(device, this.v2ub, "time", time);
-                GRID_UNIFORMS_LAYOUT.put(device, this.v2ub, "scale", scale);
-
+            encoder = device.createCommandEncoder();
+            try (GpuRenderPass renderPass = encoder.beginRenderPass(new GpuRenderPassDescriptor(new GpuRenderPassDescriptor.ColorAttachment(mainTarget.color())))) {
                 renderPass.setPipeline(this.instanceV2Pipeline);
                 renderPass.setResource("uniforms", this.ub);
                 renderPass.setResource("grid_uniforms", this.v2ub);
@@ -179,6 +180,7 @@ public class Instancing implements App {
                 renderPass.setIndexBuffer(this.ibh, GpuIndexFormat.UINT32);
                 renderPass.drawIndexed(36, this.m_sideSize[0] * this.m_sideSize[0], 0, 0, 0);
             }
+            device.submit(encoder.finish());
         } else if (this.m_useInstancing.get()) {
             this.instanceData.clear();
 
@@ -194,11 +196,11 @@ public class Instancing implements App {
             this.instanceData.flip();
 
             device.writeToBuffer(this.instanceDataBuffer, this.instanceData);
+            this.model.identity().scale(scale);
+            UNIFORMS_LAYOUT.put(device, this.ub, "model", this.model);
 
-            try (GpuRenderPass renderPass = device.createRenderPass(mainTarget.color(), null)) {
-                this.model.identity().scale(scale);
-                UNIFORMS_LAYOUT.put(device, this.ub, "model", this.model);
-
+            encoder = device.createCommandEncoder();
+            try (GpuRenderPass renderPass = encoder.beginRenderPass(new GpuRenderPassDescriptor(new GpuRenderPassDescriptor.ColorAttachment(mainTarget.color())))) {
                 renderPass.setPipeline(this.instancePipeline);
                 renderPass.setResource("uniforms", this.ub);
                 renderPass.setVertexBuffer(0, this.vbh);
@@ -206,21 +208,23 @@ public class Instancing implements App {
                 renderPass.setIndexBuffer(this.ibh, GpuIndexFormat.UINT32);
                 renderPass.drawIndexed(36, this.m_sideSize[0] * this.m_sideSize[0], 0, 0, 0);
             }
+            device.submit(encoder.finish());
         } else {
-            try (GpuRenderPass renderPass = device.createRenderPass(mainTarget.color(), null)) {
-                renderPass.setPipeline(this.pipeline);
-                renderPass.setVertexBuffer(0, this.vbh);
-                renderPass.setIndexBuffer(this.ibh, GpuIndexFormat.UINT32);
-                renderPass.setResource("uniforms", this.ub);
+            for (int y = 0; y < this.m_sideSize[0]; ++y) {
+                for (int x = 0; x < this.m_sideSize[0]; ++x) {
+                    this.model.identity().scale(scale).translate(-15f * (1f / scale) + x * 3f, -15f * (1f / scale) + y * 3f, 0f).rotateXYZ(x * 0.21f + time, y * 0.37f + time, 0);
+                    UNIFORMS_LAYOUT.put(device, this.ub, "model", this.model);
 
-                for (int y = 0; y < this.m_sideSize[0]; ++y) {
-                    for (int x = 0; x < this.m_sideSize[0]; ++x) {
-                        this.model.identity().scale(scale).translate(-15f * (1f / scale) + x * 3f, -15f * (1f / scale) + y * 3f, 0f).rotateXYZ(x * 0.21f + time, y * 0.37f + time, 0);
-
-                        UNIFORMS_LAYOUT.put(device, this.ub, "model", this.model);
+                    encoder = device.createCommandEncoder();
+                    try (GpuRenderPass renderPass = encoder.beginRenderPass(new GpuRenderPassDescriptor(new GpuRenderPassDescriptor.ColorAttachment(mainTarget.color())))) {
+                        renderPass.setPipeline(this.pipeline);
+                        renderPass.setVertexBuffer(0, this.vbh);
+                        renderPass.setIndexBuffer(this.ibh, GpuIndexFormat.UINT32);
+                        renderPass.setResource("uniforms", this.ub);
 
                         renderPass.drawIndexed(36);
                     }
+                    device.submit(encoder.finish());
                 }
             }
         }
